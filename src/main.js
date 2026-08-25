@@ -3,7 +3,7 @@
 const { getInput, info, notice, setFailed, setOutput, warning } = require('./actions');
 const { CloverClient, sleep } = require('./clover');
 const { getPullRequestContext } = require('./context');
-const { matchAnchors, selectActionItems } = require('./findings');
+const { matchLocations, selectActionItems } = require('./findings');
 const { GithubClient } = require('./github');
 const { renderFindingComment, renderReviewComment, renderTimeoutComment } = require('./render');
 
@@ -184,13 +184,13 @@ async function postInlineComments(clover, github, pullRequest, securityReviewId,
 
     info(`Locating ${actionItems.length} action items on the diff…`);
 
-    const { anchors = [] } = await clover.locateFindings(securityReviewId, {
+    const { locations = [] } = await clover.locateFindings(securityReviewId, {
       files,
       requirementIds: actionItems.filter((item) => item.kind === 'Requirement').map((item) => item.finding.id),
       threatIds: actionItems.filter((item) => item.kind === 'Threat').map((item) => item.finding.id),
     });
 
-    const placed = matchAnchors(actionItems, anchors);
+    const placed = matchLocations(actionItems, locations);
 
     if (placed.length === 0) {
       info('No action item could be placed on a specific line of the diff.');
@@ -202,10 +202,10 @@ async function postInlineComments(clover, github, pullRequest, securityReviewId,
       pullRequest.headSha,
       placed.map((item) => ({
         body: renderFindingComment(item),
-        endLine: item.anchor.endLine,
+        endLine: item.location.endLine,
         findingId: item.finding.id,
-        path: item.anchor.path,
-        startLine: item.anchor.startLine,
+        path: item.location.path,
+        startLine: item.location.startLine,
       })),
     );
 
