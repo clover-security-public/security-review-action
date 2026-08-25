@@ -5,7 +5,7 @@
   "description": "GitHub Action that runs a Clover lean security review on pull requests in design repositories",
   "license": "MIT",
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "scripts": {
     "test": "node --test"
