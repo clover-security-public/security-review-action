@@ -30,11 +30,14 @@ jobs:
   security-review:
     runs-on: ubuntu-latest
     steps:
-      - uses: clover-security/security-review-action@v1
+      - uses: clover-security-public/security-review-action@v1
         with:
           client-id: ${{ secrets.CLOVER_CLIENT_ID }}
           secret-key: ${{ secrets.CLOVER_SECRET_KEY }}
 ```
+
+A copy-paste-ready version of this workflow lives in
+[`examples/clover-security-review.yml`](examples/clover-security-review.yml).
 
 ## Inputs
 

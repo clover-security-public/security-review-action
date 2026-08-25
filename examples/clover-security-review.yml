@@ -1,0 +1,30 @@
+# Clover Security Review — runs a lean security review on every pull request in
+# this design repository and posts the results as a sticky PR comment.
+#
+# Setup (one time):
+#   1. In Clover, create a tenant API token, and store its client id and secret
+#      key as the repository (or organization) secrets referenced below.
+#   2. Make sure this repository is connected to Clover through your GitHub
+#      integration and marked as a design repository.
+#   3. Copy this file into your repository as
+#      .github/workflows/clover-security-review.yml
+#
+# UK region: add the matching base-url / auth-base-url inputs (see the README).
+name: Clover Security Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  security-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: clover-security-public/security-review-action@v1
+        with:
+          client-id: ${{ secrets.CLOVER_CLIENT_ID }}
+          secret-key: ${{ secrets.CLOVER_SECRET_KEY }}
