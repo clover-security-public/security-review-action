@@ -20,6 +20,7 @@ function getPullRequestContext() {
 
   return {
     apiUrl: process.env.GITHUB_API_URL || 'https://api.github.com',
+    headSha: pullRequest.head?.sha,
     number: pullRequest.number,
     repository,
     url: pullRequest.html_url,

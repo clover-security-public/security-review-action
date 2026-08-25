@@ -56,6 +56,14 @@ class CloverClient {
     return this.#request('GET', `security-review/${securityReviewId}/framework-requirements`);
   }
 
+  locateFindings(securityReviewId, { files, requirementIds, threatIds }) {
+    return this.#request('POST', `security-review/${securityReviewId}/pull-request-line-anchors`, {
+      files,
+      requirementIds,
+      threatIds,
+    });
+  }
+
   getSummary(securityReviewId) {
     return this.#request('GET', `security-review/${securityReviewId}/summary`);
   }

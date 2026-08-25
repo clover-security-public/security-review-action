@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs the full action flow from a terminal against a real pull request, without
-# GitHub Actions. Posts a real sticky comment on the target PR.
+# GitHub Actions. Posts a real sticky comment and inline comments on the target PR.
 #
 # Usage:
 #   CLOVER_CLIENT_ID=... CLOVER_SECRET_KEY=... scripts/local-run.sh <pull-request-url>
@@ -31,7 +31,8 @@ fi
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
-printf '{"pull_request": {"number": %s, "html_url": "%s"}}' "$PR_NUMBER" "$PR_URL" > "$WORK_DIR/event.json"
+HEAD_SHA="$(gh pr view "$PR_URL" --json headRefOid --jq .headRefOid)"
+printf '{"pull_request": {"number": %s, "html_url": "%s", "head": {"sha": "%s"}}}' "$PR_NUMBER" "$PR_URL" "$HEAD_SHA" > "$WORK_DIR/event.json"
 touch "$WORK_DIR/output.txt"
 
 # Input env var names contain dashes (as the Actions runner sets them), so they

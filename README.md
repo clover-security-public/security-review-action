@@ -2,8 +2,9 @@
 
 Runs a [Clover](https://clover.security) **lean security review** on every pull request in an
 architectural design repository, and posts the results — a summary and tailored security framework
-requirements (plus threats, when enabled for your tenant) — as a single sticky comment on the PR.
-Re-pushing to the PR updates the comment in place.
+requirements (plus threats, when enabled for your tenant) — as a single sticky comment on the PR,
+and posts open action items as inline review comments on the changed lines they apply to.
+Re-pushing to the PR updates the comments in place.
 
 ## Prerequisites
 
@@ -51,7 +52,7 @@ A copy-paste-ready version of this workflow lives in
 | `application-id` | no | resolved from the repository | Clover application to create the review under. |
 | `wait-timeout` | no | `900` | Max seconds to wait for the review before giving up (a timeout never fails the build). |
 | `fail-on-error` | no | `true` | Whether a failed review creation fails the build. |
-| `github-token` | no | `${{ github.token }}` | Token used to write the sticky PR comment. |
+| `github-token` | no | `${{ github.token }}` | Token used to write the PR comments. |
 
 ## Outputs
 
@@ -60,13 +61,19 @@ A copy-paste-ready version of this workflow lives in
 | `security-review-id` | Id of the created (or pre-existing) Clover security review. |
 | `status` | `completed`, `timeout`, `failed`, `unsupported-repository` or `skipped`. |
 | `comment-url` | URL of the sticky PR comment, when one was written. |
+| `inline-comments` | Number of action items posted as inline review comments on the diff. |
 
 ## Behavior
 
 - **Sticky comment** — the action writes one comment per PR (identified by a hidden marker) and
   updates it in place on subsequent runs.
-- **Re-pushes** — pushing new commits re-runs the action; the existing review for the PR is reused
-  and the comment refreshed.
+- **Inline comments** — open requirements and threats (up to 15, most severe first) are placed by
+  Clover on the specific changed lines they concern and posted as review comments; findings without
+  a precise location stay in the summary comment only. Placement is best effort — if it fails, the
+  summary comment still carries every result.
+- **Re-pushes** — pushing new commits re-runs the action; the existing review for the PR is reused,
+  the summary comment refreshed, and inline comments re-placed against the new diff (existing ones
+  are updated rather than duplicated).
 - **Timeouts** — if the review takes longer than `wait-timeout`, the action logs a warning and
   exits successfully; the review keeps running in Clover and the next run posts its results.
 - **Not a design repository** — if the PR's repository is not marked as a design repository in

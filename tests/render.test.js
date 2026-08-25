@@ -67,3 +67,47 @@ test('escapes pipes and newlines in threat table cells', () => {
 test('timeout comment carries the sticky marker', () => {
   assert.ok(renderTimeoutComment().startsWith(STICKY_COMMENT_MARKER));
 });
+
+test('renders an inline finding comment with its hidden marker', () => {
+  const { findingCommentMarker } = require('../src/github');
+  const { renderFindingComment } = require('../src/render');
+
+  const requirementComment = renderFindingComment({
+    finding: {
+      countermeasures: 'Rotate the secret.',
+      frameworkName: 'OWASP ASVS',
+      id: 'req-1',
+      priority: 'High',
+      requirementIdNumber: '2.1.1',
+      tailoredDescription: 'The webhook secret is static.',
+      tailoredRequirement: 'Rotate webhook signing secrets',
+    },
+    kind: 'Requirement',
+  });
+
+  assert.ok(requirementComment.startsWith(findingCommentMarker('req-1')));
+  assert.match(requirementComment, /Clover security requirement · High/);
+  assert.match(requirementComment, /Rotate webhook signing secrets/);
+  assert.match(requirementComment, /OWASP ASVS 2\.1\.1/);
+  assert.match(requirementComment, /Countermeasures/);
+
+  const threatComment = renderFindingComment({
+    finding: { id: 'thr-1', severity: 'Medium', summary: 'Replay of callbacks.', threat: 'Token replay' },
+    kind: 'Threat',
+  });
+
+  assert.ok(threatComment.startsWith(findingCommentMarker('thr-1')));
+  assert.match(threatComment, /Clover threat · Medium/);
+  assert.match(threatComment, /Replay of callbacks\./);
+});
+
+test('mentions inline comments in the summary when some were posted', () => {
+  const comment = renderReviewComment({
+    inlineFindingCount: 2,
+    requirements: [],
+    summary: { summary: 'Summary.' },
+    threats: [],
+  });
+
+  assert.match(comment, /2 action items are also posted as inline comments/);
+});

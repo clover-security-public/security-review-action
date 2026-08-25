@@ -1,7 +1,8 @@
 name: Clover Security Review
 description: >-
   Run a Clover lean security review on a pull request in a design repository and
-  post the results as a sticky PR comment.
+  post the results as a sticky PR comment, with action items as inline
+  comments on the lines they apply to.
 author: Clover Security
 
 branding:
@@ -50,7 +51,7 @@ inputs:
     required: false
     default: 'true'
   github-token:
-    description: Token used to write the sticky PR comment.
+    description: Token used to write the sticky PR comment and inline review comments.
     required: false
     default: ${{ github.token }}
 
@@ -63,6 +64,8 @@ outputs:
       skipped.
   comment-url:
     description: URL of the sticky PR comment, when one was written.
+  inline-comments:
+    description: Number of action items posted as inline review comments on the diff.
 
 runs:
   using: node24

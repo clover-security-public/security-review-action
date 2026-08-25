@@ -3,8 +3,9 @@
 const { getInput, info, notice, setFailed, setOutput, warning } = require('./actions');
 const { CloverClient, sleep } = require('./clover');
 const { getPullRequestContext } = require('./context');
+const { matchAnchors, selectActionItems } = require('./findings');
 const { GithubClient } = require('./github');
-const { renderReviewComment, renderTimeoutComment } = require('./render');
+const { renderFindingComment, renderReviewComment, renderTimeoutComment } = require('./render');
 
 const CREATION_POLL_INTERVAL_MS = 5_000;
 const ANALYSIS_POLL_INTERVAL_MS = 15_000;
@@ -145,7 +146,13 @@ async function run() {
     clover.getThreats(securityReviewId),
   ]);
 
+  const inlineFindingCount = await postInlineComments(clover, github, pullRequest, securityReviewId, {
+    requirements: requirements.data ?? [],
+    threats: threats.data ?? [],
+  });
+
   const commentBody = renderReviewComment({
+    inlineFindingCount,
     requirements: requirements.data ?? [],
     summary,
     threats: threats.data ?? [],
@@ -154,8 +161,60 @@ async function run() {
   const commentUrl = await github.upsertStickyComment(pullRequest.number, commentBody);
 
   setOutput('comment-url', commentUrl);
+  setOutput('inline-comments', String(inlineFindingCount));
   setOutput('status', 'completed');
   notice(`Clover security review completed: ${commentUrl}`);
+}
+
+// Places open findings on the diff lines they apply to. Best effort: any failure here leaves
+// the sticky summary comment as the single source of results.
+async function postInlineComments(clover, github, pullRequest, securityReviewId, findings) {
+  const actionItems = selectActionItems(findings);
+
+  if (actionItems.length === 0 || !pullRequest.headSha) {
+    return 0;
+  }
+
+  try {
+    const files = await github.getPullRequestFiles(pullRequest.number);
+
+    if (files.length === 0) {
+      return 0;
+    }
+
+    info(`Locating ${actionItems.length} action items on the diff…`);
+
+    const { anchors = [] } = await clover.locateFindings(securityReviewId, {
+      files,
+      requirementIds: actionItems.filter((item) => item.kind === 'Requirement').map((item) => item.finding.id),
+      threatIds: actionItems.filter((item) => item.kind === 'Threat').map((item) => item.finding.id),
+    });
+
+    const placed = matchAnchors(actionItems, anchors);
+
+    if (placed.length === 0) {
+      info('No action item could be placed on a specific line of the diff.');
+      return 0;
+    }
+
+    const result = await github.upsertFindingComments(
+      pullRequest.number,
+      pullRequest.headSha,
+      placed.map((item) => ({
+        body: renderFindingComment(item),
+        endLine: item.anchor.endLine,
+        findingId: item.finding.id,
+        path: item.anchor.path,
+        startLine: item.anchor.startLine,
+      })),
+    );
+
+    info(`Inline comments: ${result.created} created, ${result.updated} updated.`);
+    return placed.length;
+  } catch (error) {
+    warning(`Could not post inline comments; results are in the summary comment. ${error.message}`);
+    return 0;
+  }
 }
 
 async function handleTimeout(github, pullRequest) {

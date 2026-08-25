@@ -3,6 +3,13 @@
 // Hidden marker identifying the action's sticky comment, so re-runs update it in place.
 const STICKY_COMMENT_MARKER = '<!-- clover-security-review -->';
 
+// Hidden per-finding marker on inline review comments, so re-runs update rather than duplicate them.
+const FINDING_COMMENT_MARKER_PREFIX = '<!-- clover-finding:';
+
+function findingCommentMarker(findingId) {
+  return `${FINDING_COMMENT_MARKER_PREFIX}${findingId} -->`;
+}
+
 class GithubClient {
   #apiUrl;
   #repository;
@@ -36,6 +43,85 @@ class GithubClient {
 
     const created = await this.#send('POST', `issues/${pullRequestNumber}/comments`, { body });
     return created.html_url;
+  }
+
+  // Changed files with their unified-diff patches; binary and patch-less files are skipped.
+  async getPullRequestFiles(pullRequestNumber) {
+    const files = [];
+
+    for (let page = 1; page <= 30; page += 1) {
+      const pageFiles = await this.#send(
+        'GET',
+        `pulls/${pullRequestNumber}/files?per_page=100&page=${page}`,
+      );
+
+      files.push(...pageFiles);
+
+      if (pageFiles.length < 100) {
+        break;
+      }
+    }
+
+    return files
+      .filter((file) => file.status !== 'removed' && typeof file.patch === 'string' && file.patch.length > 0)
+      .map((file) => ({ patch: file.patch, path: file.filename }));
+  }
+
+  // Creates or updates one inline review comment per finding; all new comments land in a single review.
+  async upsertFindingComments(pullRequestNumber, headSha, findingComments) {
+    const existing = await this.#listReviewComments(pullRequestNumber);
+    const created = [];
+    const updated = [];
+
+    for (const findingComment of findingComments) {
+      const marker = findingCommentMarker(findingComment.findingId);
+      const existingComment = existing.find((comment) => comment.body?.includes(marker));
+
+      if (existingComment) {
+        await this.#send('PATCH', `pulls/comments/${existingComment.id}`, { body: findingComment.body });
+        updated.push(existingComment.html_url);
+      } else {
+        created.push(findingComment);
+      }
+    }
+
+    if (created.length > 0) {
+      await this.#send('POST', `pulls/${pullRequestNumber}/reviews`, {
+        body: '',
+        comments: created.map((findingComment) => ({
+          body: findingComment.body,
+          line: findingComment.endLine,
+          path: findingComment.path,
+          side: 'RIGHT',
+          ...(findingComment.startLine < findingComment.endLine
+            ? { start_line: findingComment.startLine, start_side: 'RIGHT' }
+            : {}),
+        })),
+        commit_id: headSha,
+        event: 'COMMENT',
+      });
+    }
+
+    return { created: created.length, updated: updated.length };
+  }
+
+  async #listReviewComments(pullRequestNumber) {
+    const comments = [];
+
+    for (let page = 1; page <= 10; page += 1) {
+      const pageComments = await this.#send(
+        'GET',
+        `pulls/${pullRequestNumber}/comments?per_page=100&page=${page}`,
+      );
+
+      comments.push(...pageComments);
+
+      if (pageComments.length < 100) {
+        break;
+      }
+    }
+
+    return comments;
   }
 
   async #findStickyComment(pullRequestNumber) {
@@ -82,4 +168,4 @@ class GithubClient {
   }
 }
 
-module.exports = { GithubClient, STICKY_COMMENT_MARKER };
+module.exports = { FINDING_COMMENT_MARKER_PREFIX, GithubClient, STICKY_COMMENT_MARKER, findingCommentMarker };
