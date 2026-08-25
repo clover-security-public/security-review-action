@@ -1,0 +1,69 @@
+name: Clover Security Review
+description: >-
+  Run a Clover lean security review on a pull request in a design repository and
+  post the results as a sticky PR comment.
+author: Clover Security
+
+branding:
+  icon: shield
+  color: green
+
+inputs:
+  client-id:
+    description: Client id of a Clover tenant API token. Store it as a repository secret.
+    required: true
+  secret-key:
+    description: Secret key of a Clover tenant API token. Store it as a repository secret.
+    required: true
+  base-url:
+    description: >-
+      Base URL of the Clover API for your region.
+      US: https://api.cloversec.io
+    required: false
+    default: https://api.cloversec.io
+  auth-base-url:
+    description: >-
+      Base URL of the Clover authentication service for your region.
+      US: https://auth.cloversec.io
+    required: false
+    default: https://auth.cloversec.io
+  url:
+    description: >-
+      URL of the pull request to review. Defaults to the pull request that
+      triggered the workflow.
+    required: false
+  application-id:
+    description: >-
+      Clover application id to create the review under. When omitted, the
+      application is resolved from the pull request's repository.
+    required: false
+  wait-timeout:
+    description: >-
+      Maximum time in seconds to wait for the review to complete before giving
+      up (the build is not failed on timeout).
+    required: false
+    default: '900'
+  fail-on-error:
+    description: >-
+      Whether a failed review creation (e.g. the repository is not marked as a
+      design repository in Clover) fails the build. Timeouts never fail the build.
+    required: false
+    default: 'true'
+  github-token:
+    description: Token used to write the sticky PR comment.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  security-review-id:
+    description: Id of the created (or pre-existing) Clover security review.
+  status:
+    description: >-
+      Outcome of the run: completed, timeout, failed, unsupported-repository or
+      skipped.
+  comment-url:
+    description: URL of the sticky PR comment, when one was written.
+
+runs:
+  using: node20
+  main: src/main.js

@@ -1,0 +1,13 @@
+{
+  "name": "security-review-action",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GitHub Action that runs a Clover lean security review on pull requests in design repositories",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}
