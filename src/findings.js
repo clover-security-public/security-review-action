@@ -7,7 +7,7 @@ const OPEN_THREAT_STATUSES = new Set(['SentToDevelopers', 'SuggestedByAppSec', '
 
 const PRIORITY_ORDER = ['Critical', 'High', 'Medium', 'Low'];
 const MAX_INLINE_FINDINGS = 15;
-const MIN_ANCHOR_CONFIDENCE = 3;
+const MIN_LOCATION_CONFIDENCE = 3;
 
 function priorityRank(priority) {
   const rank = PRIORITY_ORDER.indexOf(priority);
@@ -31,17 +31,17 @@ function selectActionItems({ requirements, threats }, limit = MAX_INLINE_FINDING
     .slice(0, limit);
 }
 
-// Joins the backend's anchors back to the selected findings, dropping weak placements.
-function matchAnchors(actionItems, anchors) {
+// Joins the backend's locations back to the selected findings, dropping weak placements.
+function matchLocations(actionItems, locations) {
   const idToActionItem = new Map(actionItems.map((item) => [String(item.finding.id), item]));
 
-  return anchors
-    .filter((anchor) => anchor.confidence >= MIN_ANCHOR_CONFIDENCE)
-    .map((anchor) => {
-      const actionItem = idToActionItem.get(String(anchor.findingId));
-      return actionItem ? { ...actionItem, anchor } : null;
+  return locations
+    .filter((location) => location.confidence >= MIN_LOCATION_CONFIDENCE)
+    .map((location) => {
+      const actionItem = idToActionItem.get(String(location.findingId));
+      return actionItem ? { ...actionItem, location } : null;
     })
     .filter(Boolean);
 }
 
-module.exports = { MAX_INLINE_FINDINGS, MIN_ANCHOR_CONFIDENCE, matchAnchors, priorityRank, selectActionItems };
+module.exports = { MAX_INLINE_FINDINGS, MIN_LOCATION_CONFIDENCE, matchLocations, priorityRank, selectActionItems };

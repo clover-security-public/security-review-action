@@ -57,7 +57,7 @@ class CloverClient {
   }
 
   locateFindings(securityReviewId, { files, requirementIds, threatIds }) {
-    return this.#request('POST', `security-review/${securityReviewId}/pull-request-line-anchors`, {
+    return this.#request('POST', `security-review/${securityReviewId}/pull-request-finding-locations`, {
       files,
       requirementIds,
       threatIds,
