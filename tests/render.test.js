@@ -68,7 +68,23 @@ test('timeout comment carries the sticky marker', () => {
   assert.ok(renderTimeoutComment().startsWith(STICKY_COMMENT_MARKER));
 });
 
-test('renders an inline finding comment with its hidden marker', () => {
+test('prefers the line-specific comment returned with the location', () => {
+  const { findingCommentMarker } = require('../src/github');
+  const { renderFindingComment } = require('../src/render');
+
+  const comment = renderFindingComment({
+    finding: { frameworkName: 'OWASP ASVS', id: 'req-9', priority: 'High', requirementIdNumber: '2.1.1' },
+    kind: 'Requirement',
+    location: { comment: 'The callback accepts any signer. Verify the HMAC before parsing.' },
+  });
+
+  assert.ok(comment.startsWith(findingCommentMarker('req-9')));
+  assert.match(comment, /Verify the HMAC before parsing\./);
+  assert.match(comment, /_Clover security requirement · High · OWASP ASVS 2\.1\.1_/);
+  assert.doesNotMatch(comment, /Countermeasures/);
+});
+
+test('falls back to the finding text when no comment was returned', () => {
   const { findingCommentMarker } = require('../src/github');
   const { renderFindingComment } = require('../src/render');
 

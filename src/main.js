@@ -3,7 +3,7 @@
 const { getInput, info, notice, setFailed, setOutput, warning } = require('./actions');
 const { CloverClient, sleep } = require('./clover');
 const { getPullRequestContext } = require('./context');
-const { matchLocations, selectActionItems } = require('./findings');
+const { matchLocations, planInlineComments, selectActionItems } = require('./findings');
 const { GithubClient } = require('./github');
 const { renderFindingComment, renderReviewComment, renderTimeoutComment } = require('./render');
 
@@ -87,6 +87,7 @@ async function run() {
 
   const github = new GithubClient({
     apiUrl: pullRequest.apiUrl,
+    graphqlUrl: pullRequest.graphqlUrl,
     repository: pullRequest.repository,
     token: getInput('github-token', { required: true }),
   });
@@ -166,51 +167,63 @@ async function run() {
   notice(`Clover security review completed: ${commentUrl}`);
 }
 
-// Places open findings on the diff lines they apply to. Best effort: any failure here leaves
-// the sticky summary comment as the single source of results.
+// Places newly open findings on the diff lines they apply to and resolves the threads of findings
+// that are no longer open. Existing inline comments are never edited or moved. Best effort: any
+// failure here leaves the sticky summary comment as the single source of results.
 async function postInlineComments(clover, github, pullRequest, securityReviewId, findings) {
-  const actionItems = selectActionItems(findings);
-
-  if (actionItems.length === 0 || !pullRequest.headSha) {
+  if (!pullRequest.headSha) {
     return 0;
   }
 
   try {
+    const actionItems = selectActionItems(findings);
+    const existingFindingIds = await github.listFindingCommentIds(pullRequest.number);
+    const { newItems, staleFindingIds } = planInlineComments(actionItems, existingFindingIds);
+
+    const resolved = await github.resolveFindingThreads(pullRequest.number, staleFindingIds);
+
+    if (resolved > 0) {
+      info(`Resolved ${resolved} inline comment thread(s) for findings that are no longer open.`);
+    }
+
+    if (newItems.length === 0) {
+      return existingFindingIds.size - staleFindingIds.length;
+    }
+
     const files = await github.getPullRequestFiles(pullRequest.number);
 
     if (files.length === 0) {
-      return 0;
+      return existingFindingIds.size - staleFindingIds.length;
     }
 
-    info(`Locating ${actionItems.length} action items on the diff…`);
+    info(`Locating ${newItems.length} new action item(s) on the diff…`);
 
     const { locations = [] } = await clover.locateFindings(securityReviewId, {
       files,
-      requirementIds: actionItems.filter((item) => item.kind === 'Requirement').map((item) => item.finding.id),
-      threatIds: actionItems.filter((item) => item.kind === 'Threat').map((item) => item.finding.id),
+      requirementIds: newItems.filter((item) => item.kind === 'Requirement').map((item) => item.finding.id),
+      threatIds: newItems.filter((item) => item.kind === 'Threat').map((item) => item.finding.id),
     });
 
-    const placed = matchLocations(actionItems, locations);
+    const placed = matchLocations(newItems, locations);
 
     if (placed.length === 0) {
-      info('No action item could be placed on a specific line of the diff.');
-      return 0;
+      info('No new action item could be placed on a specific line of the diff.');
+    } else {
+      await github.createFindingComments(
+        pullRequest.number,
+        pullRequest.headSha,
+        placed.map((item) => ({
+          body: renderFindingComment(item),
+          endLine: item.location.endLine,
+          path: item.location.path,
+          startLine: item.location.startLine,
+        })),
+      );
+
+      info(`Posted ${placed.length} inline comment(s).`);
     }
 
-    const result = await github.upsertFindingComments(
-      pullRequest.number,
-      pullRequest.headSha,
-      placed.map((item) => ({
-        body: renderFindingComment(item),
-        endLine: item.location.endLine,
-        findingId: item.finding.id,
-        path: item.location.path,
-        startLine: item.location.startLine,
-      })),
-    );
-
-    info(`Inline comments: ${result.created} created, ${result.updated} updated.`);
-    return placed.length;
+    return existingFindingIds.size - staleFindingIds.length + placed.length;
   } catch (error) {
     warning(`Could not post inline comments; results are in the summary comment. ${error.message}`);
     return 0;

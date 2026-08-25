@@ -67,13 +67,14 @@ A copy-paste-ready version of this workflow lives in
 
 - **Sticky comment** — the action writes one comment per PR (identified by a hidden marker) and
   updates it in place on subsequent runs.
-- **Inline comments** — open requirements and threats (up to 15, most severe first) are placed by
-  Clover on the specific changed lines they concern and posted as review comments; findings without
-  a precise location stay in the summary comment only. Placement is best effort — if it fails, the
-  summary comment still carries every result.
-- **Re-pushes** — pushing new commits re-runs the action; the existing review for the PR is reused,
-  the summary comment refreshed, and inline comments re-placed against the new diff (existing ones
-  are updated rather than duplicated).
+- **Inline comments** — open requirements and threats (most severe first, up to 15 new ones per run)
+  are placed by Clover on the specific changed lines they concern and posted as review comments
+  written for those lines; findings without a precise location stay in the summary comment only.
+  Placement is best effort — if it fails, the summary comment still carries every result.
+- **Re-pushes** — pushing new commits re-runs the action; the existing review for the PR is reused
+  and the summary comment refreshed. Existing inline comments are never edited or moved: a re-run
+  only adds comments for findings that have none yet, and resolves the threads of findings that are
+  no longer open.
 - **Timeouts** — if the review takes longer than `wait-timeout`, the action logs a warning and
   exits successfully; the review keeps running in Clover and the next run posts its results.
 - **Not a design repository** — if the PR's repository is not marked as a design repository in

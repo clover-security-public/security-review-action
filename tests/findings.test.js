@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 
-const { matchLocations, selectActionItems } = require('../src/findings');
+const { matchLocations, planInlineComments, selectActionItems } = require('../src/findings');
 
 const requirement = (id, status, priority) => ({ id, priority, status, tailoredRequirement: `R ${id}` });
 const threat = (id, status, severity) => ({ id, severity, status, threat: `T ${id}` });
@@ -29,12 +29,18 @@ test('selects only open findings, most severe first, requirements before threats
   assert.deepEqual(items.map((item) => item.kind), ['Requirement', 'Threat', 'Requirement', 'Threat']);
 });
 
-test('caps the number of action items', () => {
+test('plans comments only for findings without one, capped, and resolves stale ones', () => {
   const requirements = Array.from({ length: 20 }, (_, index) =>
     requirement(`r-${index}`, 'SuggestedByClover', 'High'));
+  const actionItems = selectActionItems({ requirements, threats: [] });
 
-  assert.equal(selectActionItems({ requirements, threats: [] }).length, 15);
-  assert.equal(selectActionItems({ requirements, threats: [] }, 3).length, 3);
+  const plan = planInlineComments(actionItems, new Set(['r-0', 'r-1', 'r-covered-earlier']));
+
+  assert.equal(plan.newItems.length, 15);
+  assert.ok(plan.newItems.every((item) => !['r-0', 'r-1'].includes(item.finding.id)));
+  assert.deepEqual(plan.staleFindingIds, ['r-covered-earlier']);
+
+  assert.equal(planInlineComments(actionItems, new Set(), 3).newItems.length, 3);
 });
 
 test('matches locations to selected findings and drops weak or unknown ones', () => {

@@ -15,8 +15,8 @@ function priorityRank(priority) {
 }
 
 // Picks the findings worth an inline comment: open requirements and threats, most severe first,
-// requirements before threats on ties, capped so a PR is never flooded.
-function selectActionItems({ requirements, threats }, limit = MAX_INLINE_FINDINGS) {
+// requirements before threats on ties.
+function selectActionItems({ requirements, threats }) {
   const candidates = [
     ...requirements
       .filter((requirement) => OPEN_REQUIREMENT_STATUSES.has(requirement.status))
@@ -26,9 +26,18 @@ function selectActionItems({ requirements, threats }, limit = MAX_INLINE_FINDING
       .map((threat) => ({ finding: threat, kind: 'Threat', priority: threat.severity })),
   ];
 
-  return candidates
-    .sort((left, right) => priorityRank(left.priority) - priorityRank(right.priority))
-    .slice(0, limit);
+  return candidates.sort((left, right) => priorityRank(left.priority) - priorityRank(right.priority));
+}
+
+// Existing inline comments are never edited or moved: a run only comments on findings that have
+// none yet (capped so a PR is never flooded) and resolves the threads of findings no longer open.
+function planInlineComments(actionItems, existingFindingIds, limit = MAX_INLINE_FINDINGS) {
+  const openFindingIds = new Set(actionItems.map((item) => String(item.finding.id)));
+
+  return {
+    newItems: actionItems.filter((item) => !existingFindingIds.has(String(item.finding.id))).slice(0, limit),
+    staleFindingIds: [...existingFindingIds].filter((findingId) => !openFindingIds.has(findingId)),
+  };
 }
 
 // Joins the backend's locations back to the selected findings, dropping weak placements.
@@ -44,4 +53,11 @@ function matchLocations(actionItems, locations) {
     .filter(Boolean);
 }
 
-module.exports = { MAX_INLINE_FINDINGS, MIN_LOCATION_CONFIDENCE, matchLocations, priorityRank, selectActionItems };
+module.exports = {
+  MAX_INLINE_FINDINGS,
+  MIN_LOCATION_CONFIDENCE,
+  matchLocations,
+  planInlineComments,
+  priorityRank,
+  selectActionItems,
+};

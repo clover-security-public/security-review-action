@@ -79,8 +79,23 @@ function renderThreats(threats) {
   return `\n### Threats (${threats.length})\n\n| Severity | Threat | Category |\n|---|---|---|\n${rows.join('\n')}${truncationNote}\n`;
 }
 
-function renderFindingComment({ finding, kind }) {
+function findingFooter({ finding, kind }) {
+  const parts =
+    kind === 'Requirement'
+      ? ['Clover security requirement', finding.priority, [finding.frameworkName, finding.requirementIdNumber].filter(Boolean).join(' ')]
+      : ['Clover threat', finding.severity, asDisplayString(finding.category)];
+
+  return `_${parts.filter(Boolean).join(' · ')}_`;
+}
+
+// Prefers the line-specific comment written by Clover for this location; falls back to the finding text.
+function renderFindingComment({ finding, kind, location }) {
   const lines = [findingCommentMarker(finding.id)];
+
+  if (location?.comment) {
+    lines.push(location.comment.trim(), '', findingFooter({ finding, kind }));
+    return lines.join('\n');
+  }
 
   if (kind === 'Requirement') {
     const framework = [finding.frameworkName, finding.requirementIdNumber].filter(Boolean).join(' ');
@@ -93,13 +108,6 @@ function renderFindingComment({ finding, kind }) {
     if (finding.tailoredDescription) {
       lines.push('', finding.tailoredDescription);
     }
-
-    if (finding.countermeasures) {
-      lines.push('', `<details><summary>Countermeasures</summary>
-
-${finding.countermeasures}
-</details>`);
-    }
   } else {
     lines.push(
       `**⚠️ Clover threat${finding.severity ? ` · ${finding.severity}` : ''}**`,
@@ -110,13 +118,10 @@ ${finding.countermeasures}
     if (finding.summary) {
       lines.push('', finding.summary);
     }
+  }
 
-    if (finding.countermeasures) {
-      lines.push('', `<details><summary>Countermeasures</summary>
-
-${finding.countermeasures}
-</details>`);
-    }
+  if (finding.countermeasures) {
+    lines.push('', `<details><summary>Countermeasures</summary>\n\n${finding.countermeasures}\n</details>`);
   }
 
   return lines.join('\n');
