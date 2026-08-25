@@ -83,4 +83,4 @@ jobs:
 npm test
 ```
 
-The action is dependency-free (Node 20, global `fetch`) — there is no build or bundling step.
+The action is dependency-free (Node 24, global `fetch`) — there is no build or bundling step.

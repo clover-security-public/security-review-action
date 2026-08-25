@@ -65,5 +65,5 @@ outputs:
     description: URL of the sticky PR comment, when one was written.
 
 runs:
-  using: node20
+  using: node24
   main: src/main.js

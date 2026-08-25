@@ -1,0 +1,24 @@
+# Runs this action on its own pull requests, against the Clover dev environment.
+# Requires repository secrets CLOVER_DEV_CLIENT_ID / CLOVER_DEV_SECRET_KEY, and this
+# repository to be connected to the dev tenant and marked as a design repository.
+name: Self-test
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  security-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          client-id: ${{ secrets.CLOVER_DEV_CLIENT_ID }}
+          secret-key: ${{ secrets.CLOVER_DEV_SECRET_KEY }}
+          base-url: https://api-dev.cloversec.io
+          auth-base-url: https://auth-dev.cloversec.io
