@@ -82,7 +82,7 @@ function renderThreats(threats) {
 
 // Comments are posted by the workflow's token (usually github-actions[bot]), so the body itself
 // carries the Clover identity.
-const INLINE_COMMENT_HEADER = '**🛡️ [Clover Security Review](https://github.com/clover-security-public/security-review-action)**';
+const INLINE_COMMENT_HEADER = '**🍀🛡️ [Clover Security Review](https://github.com/clover-security-public/security-review-action)**';
 
 function findingFooter({ finding, kind }) {
   const parts =
@@ -154,7 +154,7 @@ function renderReviewComment({ inlineFindingCount = 0, requirements, run, summar
 
   const sections = [
     STICKY_COMMENT_MARKER,
-    '## 🛡️ Clover Security Review',
+    '## 🍀🛡️ Clover Security Review',
     '',
   ];
 
@@ -189,7 +189,7 @@ function renderReviewComment({ inlineFindingCount = 0, requirements, run, summar
 function renderTimeoutComment(run) {
   return [
     STICKY_COMMENT_MARKER,
-    '## 🛡️ Clover Security Review',
+    '## 🍀🛡️ Clover Security Review',
     '',
     '_The security review is taking longer than expected. Results will appear on the next run of this workflow._',
     '',
