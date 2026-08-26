@@ -80,50 +80,44 @@ function renderThreats(threats) {
   return `\n### Threats (${threats.length})\n\n| Severity | Threat | Category |\n|---|---|---|\n${rows.join('\n')}${truncationNote}\n`;
 }
 
+// Comments are posted by the workflow's token (usually github-actions[bot]), so the body itself
+// carries the Clover identity.
+const INLINE_COMMENT_HEADER = '**🍀🛡️ [Clover Security Review](https://github.com/clover-security-public/security-review-action)**';
+
 function findingFooter({ finding, kind }) {
   const parts =
     kind === 'Requirement'
-      ? ['Clover security requirement', finding.priority, [finding.frameworkName, finding.requirementIdNumber].filter(Boolean).join(' ')]
-      : ['Clover threat', finding.severity, asDisplayString(finding.category)];
+      ? ['Security requirement', finding.priority, [finding.frameworkName, finding.requirementIdNumber].filter(Boolean).join(' ')]
+      : ['Threat', finding.severity, asDisplayString(finding.category)];
 
   return `_${parts.filter(Boolean).join(' · ')}_`;
 }
 
 // Prefers the line-specific comment written by Clover for this location; falls back to the finding text.
 function renderFindingComment({ finding, kind, location }) {
-  const lines = [findingCommentMarker(finding.id)];
+  const lines = [findingCommentMarker(finding.id), INLINE_COMMENT_HEADER, ''];
 
   if (location?.comment) {
-    lines.push(location.comment.trim(), '', findingFooter({ finding, kind }));
-    return lines.join('\n');
-  }
-
-  if (kind === 'Requirement') {
-    const framework = [finding.frameworkName, finding.requirementIdNumber].filter(Boolean).join(' ');
-    lines.push(
-      `**🛡️ Clover security requirement${finding.priority ? ` · ${finding.priority}` : ''}**`,
-      '',
-      `**${finding.tailoredRequirement}**${framework ? ` _(${framework})_` : ''}`,
-    );
+    lines.push(location.comment.trim());
+  } else if (kind === 'Requirement') {
+    lines.push(`**${finding.tailoredRequirement}**`);
 
     if (finding.tailoredDescription) {
       lines.push('', finding.tailoredDescription);
     }
   } else {
-    lines.push(
-      `**⚠️ Clover threat${finding.severity ? ` · ${finding.severity}` : ''}**`,
-      '',
-      `**${finding.threat}**`,
-    );
+    lines.push(`**${finding.threat}**`);
 
     if (finding.summary) {
       lines.push('', finding.summary);
     }
   }
 
-  if (finding.countermeasures) {
+  if (!location?.comment && finding.countermeasures) {
     lines.push('', `<details><summary>Countermeasures</summary>\n\n${finding.countermeasures}\n</details>`);
   }
+
+  lines.push('', findingFooter({ finding, kind }));
 
   return lines.join('\n');
 }
@@ -160,7 +154,7 @@ function renderReviewComment({ inlineFindingCount = 0, requirements, run, summar
 
   const sections = [
     STICKY_COMMENT_MARKER,
-    '## 🛡️ Clover Security Review',
+    '## 🍀🛡️ Clover Security Review',
     '',
   ];
 
@@ -195,7 +189,7 @@ function renderReviewComment({ inlineFindingCount = 0, requirements, run, summar
 function renderTimeoutComment(run) {
   return [
     STICKY_COMMENT_MARKER,
-    '## 🛡️ Clover Security Review',
+    '## 🍀🛡️ Clover Security Review',
     '',
     '_The security review is taking longer than expected. Results will appear on the next run of this workflow._',
     '',
