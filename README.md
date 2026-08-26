@@ -72,9 +72,14 @@ A copy-paste-ready version of this workflow lives in
   written for those lines; findings without a precise location stay in the summary comment only.
   Placement is best effort — if it fails, the summary comment still carries every result.
 - **Re-pushes** — pushing new commits re-runs the action; the existing review for the PR is reused
-  and the summary comment refreshed. Existing inline comments are never edited or moved: a re-run
-  only adds comments for findings that have none yet, and resolves the threads of findings that are
-  no longer open.
+  and re-analyzed when its design content changed (unchanged pushes cost nothing). The summary
+  comment is refreshed. Existing inline comments are never edited or moved: a re-run only adds
+  comments for findings that have none yet, and resolves the threads of findings that are no longer
+  open (addressed by the change, or covered/dismissed in Clover).
+- **Overlapping pushes** — the workflow template declares a per-PR `concurrency` group with
+  `cancel-in-progress: true`, so a newer push cancels the previous run instead of two runs racing to
+  comment. If the backend is still analyzing when a run asks for a re-analysis, the run simply waits
+  for it; no error is reported.
 - **Timeouts** — if the review takes longer than `wait-timeout`, the action logs a warning and
   exits successfully; the review keeps running in Clover and the next run posts its results.
 - **Not a design repository** — if the PR's repository is not marked as a design repository in

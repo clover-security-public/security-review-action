@@ -64,6 +64,10 @@ class CloverClient {
     });
   }
 
+  recalculateSecurityReview(securityReviewId) {
+    return this.#request('POST', `security-review/${securityReviewId}/recalculate/github-action`);
+  }
+
   getSummary(securityReviewId) {
     return this.#request('GET', `security-review/${securityReviewId}/summary`);
   }
@@ -141,6 +145,10 @@ class CloverClient {
 
   async #send(method, path, body) {
     const token = await this.#getToken();
+
+    if (method === 'POST' && body === undefined) {
+      body = {};
+    }
 
     return fetch(`${this.#apiBaseUrl}/${PUBLIC_API_PREFIX}/${path}`, {
       body: body === undefined ? undefined : JSON.stringify(body),

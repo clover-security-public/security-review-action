@@ -37,6 +37,7 @@ async function pollUntil(fetchState, isDone, intervalMs, deadline) {
 async function resolveSecurityReviewId(clover, createResponse, deadline) {
   if (createResponse.existingSecurityReviewId) {
     info(`A security review already exists for this pull request: ${createResponse.existingSecurityReviewId}`);
+    await recalculateExistingReview(clover, createResponse.existingSecurityReviewId);
     return createResponse.existingSecurityReviewId;
   }
 
@@ -56,6 +57,22 @@ async function resolveSecurityReviewId(clover, createResponse, deadline) {
   }
 
   return creation.securityReviewId;
+}
+
+// Re-pushes reuse the review; ask Clover to re-analyze it when the design changed. A 409 means a
+// previous analysis is still running — the analysis-status polling that follows covers both cases.
+async function recalculateExistingReview(clover, securityReviewId) {
+  try {
+    const { recalculationQueued } = await clover.recalculateSecurityReview(securityReviewId);
+    info(recalculationQueued ? 'The design changed since the last analysis; re-analysis queued…' : 'The review is already up to date.');
+  } catch (error) {
+    if (error.status === 409) {
+      info('A previous analysis is still running; waiting for it…');
+      return;
+    }
+
+    warning(`Could not request a re-analysis; posting the existing results. ${error.message}`);
+  }
 }
 
 async function run() {
