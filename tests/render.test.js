@@ -79,8 +79,9 @@ test('prefers the line-specific comment returned with the location', () => {
   });
 
   assert.ok(comment.startsWith(findingCommentMarker('req-9')));
+  assert.match(comment, /^\*\*🛡️ \[Clover Security Review\]\(.*\)\*\*$/m);
   assert.match(comment, /Verify the HMAC before parsing\./);
-  assert.match(comment, /_Clover security requirement · High · OWASP ASVS 2\.1\.1_/);
+  assert.match(comment, /_Security requirement · High · OWASP ASVS 2\.1\.1_/);
   assert.doesNotMatch(comment, /Countermeasures/);
 });
 
@@ -102,7 +103,8 @@ test('falls back to the finding text when no comment was returned', () => {
   });
 
   assert.ok(requirementComment.startsWith(findingCommentMarker('req-1')));
-  assert.match(requirementComment, /Clover security requirement · High/);
+  assert.match(requirementComment, /\*\*🛡️ \[Clover Security Review\]/);
+  assert.match(requirementComment, /_Security requirement · High · OWASP ASVS 2\.1\.1_/);
   assert.match(requirementComment, /Rotate webhook signing secrets/);
   assert.match(requirementComment, /OWASP ASVS 2\.1\.1/);
   assert.match(requirementComment, /Countermeasures/);
@@ -113,7 +115,7 @@ test('falls back to the finding text when no comment was returned', () => {
   });
 
   assert.ok(threatComment.startsWith(findingCommentMarker('thr-1')));
-  assert.match(threatComment, /Clover threat · Medium/);
+  assert.match(threatComment, /_Threat · Medium_/);
   assert.match(threatComment, /Replay of callbacks\./);
 });
 
