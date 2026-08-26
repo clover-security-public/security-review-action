@@ -181,7 +181,7 @@ async function run() {
     );
   } catch (error) {
     if (error instanceof TimeoutError) {
-      await handleTimeout(github, pullRequest, run);
+      await handleTimeout(github, pullRequest, run, await getCloverReviewUrl(clover, securityReviewId));
       return;
     }
 
@@ -190,18 +190,21 @@ async function run() {
 
   info('Analysis completed; fetching results…');
 
-  const [summary, requirements, threats] = await Promise.all([
+  const [summary, requirements, threats, cloverReviewUrl] = await Promise.all([
     clover.getSummary(securityReviewId),
     clover.getFrameworkRequirements(securityReviewId),
     clover.getThreats(securityReviewId),
+    getCloverReviewUrl(clover, securityReviewId),
   ]);
 
   const inlineFindingCount = await postInlineComments(clover, github, pullRequest, securityReviewId, {
+    cloverReviewUrl,
     requirements: requirements.data ?? [],
     threats: threats.data ?? [],
   });
 
   const commentBody = renderReviewComment({
+    cloverReviewUrl,
     inlineFindingCount,
     requirements: requirements.data ?? [],
     run,
@@ -220,7 +223,7 @@ async function run() {
 // Places newly open findings on the diff lines they apply to and resolves the threads of findings
 // that are no longer open. Existing inline comments are never edited or moved. Best effort: any
 // failure here leaves the sticky summary comment as the single source of results.
-async function postInlineComments(clover, github, pullRequest, securityReviewId, findings) {
+async function postInlineComments(clover, github, pullRequest, securityReviewId, { cloverReviewUrl, ...findings }) {
   if (!pullRequest.headSha) {
     return 0;
   }
@@ -263,7 +266,7 @@ async function postInlineComments(clover, github, pullRequest, securityReviewId,
         pullRequest.number,
         pullRequest.headSha,
         placed.map((item) => ({
-          body: renderFindingComment(item),
+          body: renderFindingComment({ ...item, cloverReviewUrl }),
           endLine: item.location.endLine,
           path: item.location.path,
           startLine: item.location.startLine,
@@ -280,7 +283,19 @@ async function postInlineComments(clover, github, pullRequest, securityReviewId,
   }
 }
 
-async function handleTimeout(github, pullRequest, run) {
+// The Clover web URL of the review; null when the tenant hides Clover links from developers or the
+// lookup fails — the comments then carry the title as plain text.
+async function getCloverReviewUrl(clover, securityReviewId) {
+  try {
+    const { cloverUrl } = await clover.getCloverUrl(securityReviewId);
+    return cloverUrl ?? null;
+  } catch (error) {
+    warning(`Could not resolve the review's Clover link: ${error.message}`);
+    return null;
+  }
+}
+
+async function handleTimeout(github, pullRequest, run, cloverReviewUrl = null) {
   setOutput('status', 'timeout');
   warning(
     'Timed out waiting for the Clover security review to complete. The review continues in Clover; '
@@ -288,7 +303,7 @@ async function handleTimeout(github, pullRequest, run) {
   );
 
   try {
-    await github.createStickyCommentIfAbsent(pullRequest.number, renderTimeoutComment(run));
+    await github.createStickyCommentIfAbsent(pullRequest.number, renderTimeoutComment(run, cloverReviewUrl));
   } catch (error) {
     warning(`Could not update the PR comment after the timeout: ${error.message}`);
   }
