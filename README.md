@@ -2,8 +2,9 @@
 
 Runs a [Clover](https://clover.security) **lean security review** on every pull request in an
 architectural design repository, and posts the results — a summary and tailored security framework
-requirements (plus threats, when enabled for your tenant) — as a single sticky comment on the PR.
-Re-pushing to the PR updates the comment in place.
+requirements (plus threats, when enabled for your tenant) — as a single sticky comment on the PR,
+and posts open action items as inline review comments on the changed lines they apply to.
+Re-pushing to the PR updates the comments in place.
 
 ## Prerequisites
 
@@ -51,7 +52,8 @@ A copy-paste-ready version of this workflow lives in
 | `application-id` | no | resolved from the repository | Clover application to create the review under. |
 | `wait-timeout` | no | `900` | Max seconds to wait for the review before giving up (a timeout never fails the build). |
 | `fail-on-error` | no | `true` | Whether a failed review creation fails the build. |
-| `github-token` | no | `${{ github.token }}` | Token used to write the sticky PR comment. |
+| `recalculation` | no | `auto` | `auto` re-analyzes the existing review on every push that changed the design; `manual` only refreshes the summary and offers a "Re-analyze this pull request" checkbox in it (requires the workflow to also run on `issue_comment: [edited]`). |
+| `github-token` | no | `${{ github.token }}` | Token used to write the PR comments. |
 
 ## Outputs
 
@@ -60,13 +62,30 @@ A copy-paste-ready version of this workflow lives in
 | `security-review-id` | Id of the created (or pre-existing) Clover security review. |
 | `status` | `completed`, `timeout`, `failed`, `unsupported-repository` or `skipped`. |
 | `comment-url` | URL of the sticky PR comment, when one was written. |
+| `inline-comments` | Number of action items posted as inline review comments on the diff. |
 
 ## Behavior
 
 - **Sticky comment** — the action writes one comment per PR (identified by a hidden marker) and
   updates it in place on subsequent runs.
-- **Re-pushes** — pushing new commits re-runs the action; the existing review for the PR is reused
-  and the comment refreshed.
+- **Inline comments** — open requirements and threats (most severe first, up to 15 new ones per run)
+  are placed by Clover on the specific changed lines they concern and posted as review comments
+  written for those lines; findings without a precise location stay in the summary comment only.
+  Placement is best effort — if it fails, the summary comment still carries every result.
+- **Re-pushes** — pushing new commits re-runs the action; the existing review for the PR is reused.
+  With `recalculation: auto` (default) it is re-analyzed when its design content changed (unchanged
+  pushes cost nothing); with `recalculation: manual` nothing is re-analyzed until someone ticks the
+  **Re-analyze this pull request** checkbox in the summary comment. Existing inline comments are
+  never edited or moved: a re-run only adds comments for findings that have none yet, and resolves
+  the threads of findings that are no longer open (addressed by the change, or covered/dismissed in
+  Clover).
+- **Every run is visible** — the summary comment always ends with a `Last run` line (time, commit,
+  and what happened: new review, re-analysis completed, review already up to date, re-analysis
+  skipped in manual mode, or still analyzing), so a run that changed nothing still leaves a trace.
+- **Overlapping pushes** — the workflow template declares a per-PR `concurrency` group with
+  `cancel-in-progress: true`, so a newer push cancels the previous run instead of two runs racing to
+  comment. If the backend is still analyzing when a run asks for a re-analysis, the run simply waits
+  for it; no error is reported.
 - **Timeouts** — if the review takes longer than `wait-timeout`, the action logs a warning and
   exits successfully; the review keeps running in Clover and the next run posts its results.
 - **Not a design repository** — if the PR's repository is not marked as a design repository in
