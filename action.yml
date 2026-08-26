@@ -50,6 +50,15 @@ inputs:
       design repository in Clover) fails the build. Timeouts never fail the build.
     required: false
     default: 'true'
+  recalculation:
+    description: >-
+      When the pull request is pushed to again: "auto" (default) re-analyzes the
+      existing review whenever its design content changed; "manual" only refreshes
+      the summary comment and offers a "Re-analyze this pull request" checkbox in
+      it — ticking the box triggers the re-analysis (the workflow must also run on
+      "issue_comment: [edited]").
+    required: false
+    default: auto
   github-token:
     description: Token used to write the sticky PR comment and inline review comments.
     required: false
@@ -61,7 +70,7 @@ outputs:
   status:
     description: >-
       Outcome of the run: completed, timeout, failed, unsupported-repository or
-      skipped.
+      skipped (a comment edit that was not a re-analyze request).
   comment-url:
     description: URL of the sticky PR comment, when one was written.
   inline-comments:

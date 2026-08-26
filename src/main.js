@@ -2,9 +2,9 @@
 
 const { getInput, info, notice, setFailed, setOutput, warning } = require('./actions');
 const { CloverClient, sleep } = require('./clover');
-const { getPullRequestContext } = require('./context');
+const { getPullRequestContext, isReAnalyzeRequested } = require('./context');
 const { matchLocations, planInlineComments, selectActionItems } = require('./findings');
-const { GithubClient } = require('./github');
+const { GithubClient, STICKY_COMMENT_MARKER } = require('./github');
 const { renderFindingComment, renderReviewComment, renderTimeoutComment } = require('./render');
 
 const CREATION_POLL_INTERVAL_MS = 5_000;
@@ -34,11 +34,21 @@ async function pollUntil(fetchState, isDone, intervalMs, deadline) {
   }
 }
 
-async function resolveSecurityReviewId(clover, createResponse, deadline) {
+// Returns the review id and how this run got there: 'created', 'reanalyzed', 'reanalyzed-on-request',
+// 'up-to-date' or 'manual-skipped'.
+async function resolveSecurityReviewId(clover, createResponse, deadline, run) {
   if (createResponse.existingSecurityReviewId) {
-    info(`A security review already exists for this pull request: ${createResponse.existingSecurityReviewId}`);
-    await recalculateExistingReview(clover, createResponse.existingSecurityReviewId);
-    return createResponse.existingSecurityReviewId;
+    const securityReviewId = createResponse.existingSecurityReviewId;
+    info(`A security review already exists for this pull request: ${securityReviewId}`);
+
+    if (run.recalculation === 'manual' && run.trigger !== 'comment') {
+      info('Manual recalculation mode: the existing review is not re-analyzed on push.');
+      return { outcome: 'manual-skipped', securityReviewId };
+    }
+
+    const queued = await recalculateExistingReview(clover, securityReviewId);
+    const outcome = queued ? (run.trigger === 'comment' ? 'reanalyzed-on-request' : 'reanalyzed') : 'up-to-date';
+    return { outcome, securityReviewId };
   }
 
   info(`Review creation started (job ${createResponse.jobId}); waiting for it to complete…`);
@@ -56,41 +66,70 @@ async function resolveSecurityReviewId(clover, createResponse, deadline) {
     throw failure;
   }
 
-  return creation.securityReviewId;
+  return { outcome: 'created', securityReviewId: creation.securityReviewId };
 }
 
 // Re-pushes reuse the review; ask Clover to re-analyze it when the design changed. A 409 means a
 // previous analysis is still running — the analysis-status polling that follows covers both cases.
+// Returns whether an analysis is (or was already) running.
 async function recalculateExistingReview(clover, securityReviewId) {
   try {
     const { recalculationQueued } = await clover.recalculateSecurityReview(securityReviewId);
     info(recalculationQueued ? 'The design changed since the last analysis; re-analysis queued…' : 'The review is already up to date.');
+    return recalculationQueued;
   } catch (error) {
     if (error.status === 409) {
       info('A previous analysis is still running; waiting for it…');
-      return;
+      return true;
     }
 
     warning(`Could not request a re-analysis; posting the existing results. ${error.message}`);
+    return false;
   }
 }
 
 async function run() {
   const pullRequest = getPullRequestContext();
-  const url = getInput('url') || pullRequest?.url;
-
-  if (!url) {
-    setFailed(
-      'No pull request URL available. Run this action on a pull_request event, or pass the "url" input explicitly.',
-    );
-    return;
-  }
 
   if (!pullRequest) {
-    setFailed('This action must run in a GitHub Actions workflow triggered by a pull_request event.');
+    setFailed('This action must run in a GitHub Actions workflow triggered by a pull_request event (or an issue_comment event on a pull request, for the manual re-analyze checkbox).');
     return;
   }
 
+  const recalculation = getInput('recalculation') || 'auto';
+
+  if (!['auto', 'manual'].includes(recalculation)) {
+    setFailed(`Invalid "recalculation" input "${recalculation}": expected "auto" or "manual".`);
+    return;
+  }
+
+  const github = new GithubClient({
+    apiUrl: pullRequest.apiUrl,
+    graphqlUrl: pullRequest.graphqlUrl,
+    repository: pullRequest.repository,
+    token: getInput('github-token', { required: true }),
+  });
+
+  if (pullRequest.trigger === 'comment') {
+    // Only a tick of our own re-analyze checkbox is a request; any other comment edit is ignored.
+    if (!pullRequest.commentBody.includes(STICKY_COMMENT_MARKER) || !isReAnalyzeRequested(pullRequest.commentBody)) {
+      info('Comment edit is not a re-analyze request; nothing to do.');
+      setOutput('status', 'skipped');
+      return;
+    }
+
+    Object.assign(pullRequest, await github.getPullRequest(pullRequest.number));
+    info('Re-analysis requested from the pull request comment.');
+  }
+
+  const url = getInput('url') || pullRequest.url;
+
+  if (!url) {
+    setFailed('No pull request URL available. Run this action on a pull_request event, or pass the "url" input explicitly.');
+    return;
+  }
+
+  const run = { headSha: pullRequest.headSha, recalculation, timestamp: Date.now(), trigger: pullRequest.trigger };
   const failOnError = getInput('fail-on-error') !== 'false';
   const waitTimeoutSeconds = Number.parseInt(getInput('wait-timeout') || '900', 10);
   const deadline = Date.now() + waitTimeoutSeconds * 1000;
@@ -100,13 +139,6 @@ async function run() {
     authBaseUrl: getInput('auth-base-url') || 'https://auth.cloversec.io',
     clientId: getInput('client-id', { required: true }),
     secretKey: getInput('secret-key', { required: true }),
-  });
-
-  const github = new GithubClient({
-    apiUrl: pullRequest.apiUrl,
-    graphqlUrl: pullRequest.graphqlUrl,
-    repository: pullRequest.repository,
-    token: getInput('github-token', { required: true }),
   });
 
   info(`Requesting a Clover security review for ${url}`);
@@ -119,10 +151,10 @@ async function run() {
   let securityReviewId;
 
   try {
-    securityReviewId = await resolveSecurityReviewId(clover, createResponse, deadline);
+    ({ outcome: run.outcome, securityReviewId } = await resolveSecurityReviewId(clover, createResponse, deadline, run));
   } catch (error) {
     if (error instanceof TimeoutError) {
-      await handleTimeout(github, pullRequest);
+      await handleTimeout(github, pullRequest, run);
       return;
     }
 
@@ -149,7 +181,7 @@ async function run() {
     );
   } catch (error) {
     if (error instanceof TimeoutError) {
-      await handleTimeout(github, pullRequest);
+      await handleTimeout(github, pullRequest, run);
       return;
     }
 
@@ -172,6 +204,7 @@ async function run() {
   const commentBody = renderReviewComment({
     inlineFindingCount,
     requirements: requirements.data ?? [],
+    run,
     summary,
     threats: threats.data ?? [],
   });
@@ -247,7 +280,7 @@ async function postInlineComments(clover, github, pullRequest, securityReviewId,
   }
 }
 
-async function handleTimeout(github, pullRequest) {
+async function handleTimeout(github, pullRequest, run) {
   setOutput('status', 'timeout');
   warning(
     'Timed out waiting for the Clover security review to complete. The review continues in Clover; '
@@ -255,7 +288,7 @@ async function handleTimeout(github, pullRequest) {
   );
 
   try {
-    await github.createStickyCommentIfAbsent(pullRequest.number, renderTimeoutComment());
+    await github.createStickyCommentIfAbsent(pullRequest.number, renderTimeoutComment(run));
   } catch (error) {
     warning(`Could not update the PR comment after the timeout: ${error.message}`);
   }

@@ -127,3 +127,29 @@ test('mentions inline comments in the summary when some were posted', () => {
 
   assert.match(comment, /2 action items are also posted as inline comments/);
 });
+
+test('renders the last-run footer and, in manual mode, the re-analyze checkbox', () => {
+  const { RE_ANALYZE_BUTTON_MARKER, isReAnalyzeRequested } = require('../src/context');
+
+  const auto = renderReviewComment({
+    requirements: [],
+    run: { headSha: 'abcdef1234567', outcome: 'up-to-date', recalculation: 'auto', timestamp: Date.UTC(2026, 7, 26, 9, 30) },
+    summary: { summary: 'Summary.' },
+    threats: [],
+  });
+
+  assert.match(auto, /Last run: 2026-08-26 09:30 UTC · commit `abcdef1` — review already up to date/);
+  assert.doesNotMatch(auto, /Re-analyze this pull request/);
+
+  const manual = renderReviewComment({
+    requirements: [],
+    run: { headSha: 'abcdef1234567', outcome: 'manual-skipped', recalculation: 'manual', timestamp: Date.UTC(2026, 7, 26, 9, 30) },
+    summary: { summary: 'Summary.' },
+    threats: [],
+  });
+
+  assert.match(manual, /- \[ \] 🔁 \*\*Re-analyze this pull request\*\*/);
+  assert.ok(manual.includes(RE_ANALYZE_BUTTON_MARKER));
+  assert.equal(isReAnalyzeRequested(manual), false);
+  assert.equal(isReAnalyzeRequested(manual.replace('- [ ] 🔁', '- [x] 🔁')), true);
+});

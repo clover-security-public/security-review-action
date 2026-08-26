@@ -15,6 +15,10 @@ name: Clover Security Review
 on:
   pull_request:
     types: [opened, synchronize]
+  # Manual re-analysis only (recalculation: manual): ticking the "Re-analyze this
+  # pull request" checkbox in the Clover comment edits it, which fires this event.
+  # issue_comment:
+  #   types: [edited]
 
 permissions:
   contents: read
@@ -28,9 +32,12 @@ concurrency:
 
 jobs:
   security-review:
+    # With issue_comment enabled, skip edits on plain issues.
+    # if: github.event_name != 'issue_comment' || github.event.issue.pull_request
     runs-on: ubuntu-latest
     steps:
       - uses: clover-security-public/security-review-action@v1
         with:
           client-id: ${{ secrets.CLOVER_CLIENT_ID }}
           secret-key: ${{ secrets.CLOVER_SECRET_KEY }}
+          # recalculation: manual

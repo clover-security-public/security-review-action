@@ -49,6 +49,11 @@ class GithubClient {
     return created.html_url;
   }
 
+  async getPullRequest(pullRequestNumber) {
+    const pullRequest = await this.#send('GET', `pulls/${pullRequestNumber}`);
+    return { headSha: pullRequest.head?.sha, url: pullRequest.html_url };
+  }
+
   // Changed files with their unified-diff patches; binary and patch-less files are skipped.
   async getPullRequestFiles(pullRequestNumber) {
     const files = [];
