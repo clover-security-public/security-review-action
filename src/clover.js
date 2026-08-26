@@ -68,6 +68,10 @@ class CloverClient {
     return this.#request('POST', `security-review/${securityReviewId}/recalculate/github-action`);
   }
 
+  getCloverUrl(securityReviewId) {
+    return this.#request('GET', `security-review/${securityReviewId}/clover-url`);
+  }
+
   getSummary(securityReviewId) {
     return this.#request('GET', `security-review/${securityReviewId}/summary`);
   }
