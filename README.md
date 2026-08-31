@@ -68,7 +68,7 @@ A copy-paste-ready version of this workflow lives in
 
 - **Sticky comment** — the action writes one comment per PR (identified by a hidden marker) and
   updates it in place on subsequent runs.
-- **Inline comments** — open requirements and threats (most severe first, up to 15 new ones per run)
+- **Inline comments** — open requirements and threats (most severe first, up to 10 new ones per run)
   are placed by Clover on the specific changed lines they concern and posted as review comments
   written for those lines; findings without a precise location stay in the summary comment only.
 - **Server-rendered content** — every comment body is rendered by Clover; the action only posts the
