@@ -71,7 +71,8 @@ A copy-paste-ready version of this workflow lives in
 - **Inline comments** — open requirements and threats (most severe first, up to 15 new ones per run)
   are placed by Clover on the specific changed lines they concern and posted as review comments
   written for those lines; findings without a precise location stay in the summary comment only.
-  Placement is best effort — if it fails, the summary comment still carries every result.
+- **Server-rendered content** — every comment body is rendered by Clover; the action only posts the
+  returned markdown, so wording and layout update without a new action release.
 - **Re-pushes** — pushing new commits re-runs the action; the existing review for the PR is reused.
   With `recalculation: auto` (default) it is re-analyzed when its design content changed (unchanged
   pushes cost nothing); with `recalculation: manual` nothing is re-analyzed until someone ticks the
