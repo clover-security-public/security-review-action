@@ -48,37 +48,29 @@ class CloverClient {
     return this.#request('GET', `security-review/${securityReviewId}/analysis-status`);
   }
 
+  // Ready-to-post markdown for the PR: sticky summary, new inline comments, stale finding ids.
+  getReviewContent(securityReviewId, { existingFindingIds, files, headSha, includeReAnalyzeCheckbox, outcome }) {
+    return this.#request('POST', `security-review/${securityReviewId}/github-pull-request-review-content`, {
+      existingFindingIds,
+      files,
+      headSha,
+      includeReAnalyzeCheckbox,
+      outcome,
+    });
+  }
+
   getCreationStatus(jobId) {
     return this.#request('GET', `security-review/creation-status/${jobId}`);
   }
 
-  getFrameworkRequirements(securityReviewId) {
-    return this.#request('GET', `security-review/${securityReviewId}/framework-requirements`);
-  }
 
-  locateFindings(securityReviewId, { files, requirementIds, threatIds }) {
-    return this.#request('POST', `security-review/${securityReviewId}/pull-request-finding-locations`, {
-      files,
-      requirementIds,
-      threatIds,
-    });
-  }
 
   recalculateSecurityReview(securityReviewId) {
     return this.#request('POST', `security-review/${securityReviewId}/recalculate/github-action`);
   }
 
-  getCloverUrl(securityReviewId) {
-    return this.#request('GET', `security-review/${securityReviewId}/clover-url`);
-  }
 
-  getSummary(securityReviewId) {
-    return this.#request('GET', `security-review/${securityReviewId}/summary`);
-  }
 
-  getThreats(securityReviewId) {
-    return this.#request('GET', `security-review/${securityReviewId}/threats`);
-  }
 
   async #getToken() {
     if (this.#token && Date.now() < this.#tokenExpiresAt - TOKEN_REFRESH_MARGIN_MS) {
