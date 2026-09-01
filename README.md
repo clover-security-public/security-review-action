@@ -46,8 +46,8 @@ A copy-paste-ready version of this workflow lives in
 |---|---|---|---|
 | `client-id` | yes | — | Client id of a Clover tenant API token. |
 | `secret-key` | yes | — | Secret key of a Clover tenant API token. |
-| `base-url` | no | `https://api.cloversec.io` | Clover API base URL for your region. |
-| `auth-base-url` | no | `https://auth.cloversec.io` | Clover authentication base URL for your region. |
+| `base-url` | no | `https://api.cloversec.io` | Clover API base URL for your region or dedicated environment. |
+| `auth-base-url` | no | `https://auth.cloversec.io` | Clover authentication base URL. Dedicated environments usually keep the default. |
 | `url` | no | the triggering PR | URL of the pull request to review. |
 | `application-id` | no | resolved from the repository | Clover application to create the review under. |
 | `wait-timeout` | no | `900` | Max seconds to wait for the review before giving up (a timeout never fails the build). |
@@ -123,12 +123,16 @@ A copy-paste-ready version of this workflow lives in
   Clover, the action fails (or warns, with `fail-on-error: false`) with a message explaining how to
   fix it.
 
-## Regions
+## Regions and dedicated environments
 
-| Region | `base-url` | `auth-base-url` |
+| Environment | `base-url` | `auth-base-url` |
 |---|---|---|
-| US | `https://api.cloversec.io` | `https://auth.cloversec.io` |
+| US | `https://api.cloversec.io` (default) | `https://auth.cloversec.io` (default) |
 | UK | _contact Clover support_ | _contact Clover support_ |
+| Dedicated (single-tenant) | your environment's API URL, e.g. `https://api-<name>.cloversec.io` | the default, unless Clover gave you a dedicated one |
+
+Both inputs accept any HTTPS base URL — custom domains work the same way; ask Clover support for
+your environment's values if you're unsure.
 
 ## Development
 

@@ -32,6 +32,7 @@ jobs:
         with:
           client-id: ${{ secrets.CLOVER_CLIENT_ID }}
           secret-key: ${{ secrets.CLOVER_SECRET_KEY }}
+          # base-url: https://api-<your-environment>.cloversec.io
           # recalculation: manual
           # max-inline-comments: '10'
           # min-inline-comment-priority: medium

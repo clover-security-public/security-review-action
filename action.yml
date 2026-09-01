@@ -18,14 +18,14 @@ inputs:
     required: true
   base-url:
     description: >-
-      Base URL of the Clover API for your region.
+      Base URL of the Clover API for your region or dedicated environment.
       US: https://api.cloversec.io
     required: false
     default: https://api.cloversec.io
   auth-base-url:
     description: >-
-      Base URL of the Clover authentication service for your region.
-      US: https://auth.cloversec.io
+      Base URL of the Clover authentication service. Dedicated environments
+      usually keep the default. US: https://auth.cloversec.io
     required: false
     default: https://auth.cloversec.io
   url:
