@@ -48,13 +48,16 @@ class CloverClient {
     return this.#request('GET', `security-review/${securityReviewId}/analysis-status`);
   }
 
-  // Ready-to-post markdown for the PR: sticky summary, new inline comments, stale finding ids.
-  getReviewContent(securityReviewId, { existingFindingIds, files, headSha, includeReAnalyzeCheckbox, outcome }) {
+  // Ready-to-post markdown for the PR: sticky summary, new inline comments, stale finding ids,
+  // plus the pending-finding counts per priority and the review's importance the blocking policy reads.
+  getReviewContent(securityReviewId, { existingFindingIds, files, headSha, includeReAnalyzeCheckbox, maxInlineComments, minInlineCommentPriority, outcome }) {
     return this.#request('POST', `security-review/${securityReviewId}/github-pull-request-review-content`, {
       existingFindingIds,
       files,
       headSha,
       includeReAnalyzeCheckbox,
+      maxInlineComments,
+      minInlineCommentPriority,
       outcome,
     });
   }

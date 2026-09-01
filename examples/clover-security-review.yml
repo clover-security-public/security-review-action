@@ -1,22 +1,15 @@
-# Clover Security Review — runs a lean security review on every pull request in
-# this design repository and posts the results as a sticky PR comment.
+# Runs a Clover lean security review on every pull request and posts the results
+# as a sticky PR comment. Copy into .github/workflows/clover-security-review.yml.
 #
-# Setup (one time):
-#   1. In Clover, create a tenant API token, and store its client id and secret
-#      key as the repository (or organization) secrets referenced below.
-#   2. Make sure this repository is connected to Clover through your GitHub
-#      integration and marked as a design repository.
-#   3. Copy this file into your repository as
-#      .github/workflows/clover-security-review.yml
-#
-# UK region: add the matching base-url / auth-base-url inputs (see the README).
+# Setup: create a Clover tenant API token and store it as the secrets below, and
+# mark this repository as a design repository in Clover. All inputs (and the UK
+# region URLs) are documented in the README.
 name: Clover Security Review
 
 on:
   pull_request:
     types: [opened, synchronize]
-  # Manual re-analysis only (recalculation: manual): ticking the "Re-analyze this
-  # pull request" checkbox in the Clover comment edits it, which fires this event.
+  # Needed only with recalculation: manual (the re-analyze checkbox):
   # issue_comment:
   #   types: [edited]
 
@@ -24,15 +17,14 @@ permissions:
   contents: read
   pull-requests: write
 
-# One run per pull request at a time: a newer push cancels the run of the previous one, so two
-# overlapping runs never post duplicate inline comments.
+# A newer push cancels the previous run.
 concurrency:
   group: clover-security-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
   security-review:
-    # With issue_comment enabled, skip edits on plain issues.
+    # With issue_comment enabled: skip edits on plain issues.
     # if: github.event_name != 'issue_comment' || github.event.issue.pull_request
     runs-on: ubuntu-latest
     steps:
@@ -41,3 +33,10 @@ jobs:
           client-id: ${{ secrets.CLOVER_CLIENT_ID }}
           secret-key: ${{ secrets.CLOVER_SECRET_KEY }}
           # recalculation: manual
+          # max-inline-comments: '10'
+          # min-inline-comment-priority: medium
+          # max-pending-findings: '0'
+          # blocking-priority: high
+          # blocking-rules: |
+          #   importance >= high, findings >= medium, max 0
+          #   findings >= critical, max 0

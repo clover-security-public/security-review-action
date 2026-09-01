@@ -4,6 +4,7 @@ const { getInput, info, notice, setFailed, setOutput, warning } = require('./act
 const { CloverClient, sleep } = require('./clover');
 const { getPullRequestContext, isReAnalyzeRequested } = require('./context');
 const { GithubClient, STICKY_COMMENT_MARKER } = require('./github');
+const { PRIORITY_ORDER, countBlockingFindings, countPendingFindings, evaluateBlockingRules, parseBlockingRules } = require('./policy');
 
 const CREATION_POLL_INTERVAL_MS = 5_000;
 const ANALYSIS_POLL_INTERVAL_MS = 15_000;
@@ -83,6 +84,18 @@ async function resolveSecurityReviewId(clover, createResponse, deadline, run) {
   return { outcome: 'created', securityReviewId: creation.securityReviewId };
 }
 
+// Parses a non-negative integer input; returns null when the input is empty and NaN when invalid.
+function parseNonNegativeIntegerInput(name) {
+  const value = getInput(name);
+
+  if (value === '') {
+    return null;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed >= 0 && String(parsed) === value ? parsed : Number.NaN;
+}
+
 // Re-pushes reuse the review; ask Clover to re-analyze it when the design changed. A 409 means a
 // previous analysis is still running — the analysis-status polling that follows covers both cases.
 // Returns whether an analysis is (or was already) running.
@@ -117,6 +130,49 @@ async function run() {
     return;
   }
 
+  const maxInlineComments = parseNonNegativeIntegerInput('max-inline-comments');
+
+  if (Number.isNaN(maxInlineComments)) {
+    setFailed(`Invalid "max-inline-comments" input "${getInput('max-inline-comments')}": expected a non-negative integer.`);
+    return;
+  }
+
+  const maxPendingFindings = parseNonNegativeIntegerInput('max-pending-findings');
+
+  if (Number.isNaN(maxPendingFindings)) {
+    setFailed(`Invalid "max-pending-findings" input "${getInput('max-pending-findings')}": expected a non-negative integer, or empty to disable blocking.`);
+    return;
+  }
+
+  const blockingPriority = (getInput('blocking-priority') || 'high').toLowerCase();
+
+  if (!PRIORITY_ORDER.includes(blockingPriority)) {
+    setFailed(`Invalid "blocking-priority" input "${getInput('blocking-priority')}": expected one of ${PRIORITY_ORDER.join(', ')}.`);
+    return;
+  }
+
+  const minInlineCommentPriority = getInput('min-inline-comment-priority').toLowerCase();
+
+  if (minInlineCommentPriority !== '' && !PRIORITY_ORDER.includes(minInlineCommentPriority)) {
+    setFailed(`Invalid "min-inline-comment-priority" input "${getInput('min-inline-comment-priority')}": expected one of ${PRIORITY_ORDER.join(', ')}, or empty for no minimum.`);
+    return;
+  }
+
+  // "blocking-rules" is the full policy language; when set it replaces the simple
+  // max-pending-findings/blocking-priority pair, which is kept as one importance-blind rule.
+  let blockingRules;
+
+  try {
+    blockingRules = parseBlockingRules(getInput('blocking-rules'));
+  } catch (error) {
+    setFailed(error.message);
+    return;
+  }
+
+  if (blockingRules.length === 0 && maxPendingFindings !== null) {
+    blockingRules = [{ maxPendingFindings, minFindingPriority: blockingPriority, minImportance: null }];
+  }
+
   const github = new GithubClient({
     apiUrl: pullRequest.apiUrl,
     graphqlUrl: pullRequest.graphqlUrl,
@@ -143,7 +199,7 @@ async function run() {
     return;
   }
 
-  const run = { headSha: pullRequest.headSha, recalculation, timestamp: Date.now(), trigger: pullRequest.trigger };
+  const run = { headSha: pullRequest.headSha, maxInlineComments, minInlineCommentPriority, recalculation, timestamp: Date.now(), trigger: pullRequest.trigger };
   const failOnError = getInput('fail-on-error') !== 'false';
   const waitTimeoutSeconds = Number.parseInt(getInput('wait-timeout') || '900', 10);
   const deadline = Date.now() + waitTimeoutSeconds * 1000;
@@ -205,16 +261,42 @@ async function run() {
   info('Analysis completed; fetching the rendered review content…');
 
   try {
-    const { commentUrl, inlineCommentCount } = await publishReviewContent(clover, github, pullRequest, run, securityReviewId);
+    const { commentUrl, inlineCommentCount, pendingFindingCounts, reviewImportance } = await publishReviewContent(clover, github, pullRequest, run, securityReviewId);
 
     setOutput('comment-url', commentUrl);
     setOutput('inline-comments', String(inlineCommentCount));
+
+    const pendingFindings = countPendingFindings(pendingFindingCounts);
+    const blockingFindings = countBlockingFindings(pendingFindingCounts, blockingPriority);
+
+    setOutput('pending-findings', String(pendingFindings));
+    setOutput('blocking-findings', String(blockingFindings));
+    setOutput('review-importance', String(reviewImportance ?? '').toLowerCase());
+
+    // The results are always posted first, so developers see what blocked them.
+    const violations = evaluateBlockingRules(pendingFindingCounts, reviewImportance, blockingRules);
+
+    if (violations.length > 0) {
+      setOutput('status', 'blocked');
+      setFailed(`Clover security review blocked this pull request: ${violations.map((violation) => describeViolation(reviewImportance, violation)).join('; ')}. See ${commentUrl}`);
+      return;
+    }
+
     setOutput('status', 'completed');
     notice(`Clover security review completed: ${commentUrl}`);
   } catch (error) {
     setOutput('status', 'failed');
     (failOnError ? setFailed : warning)(`The review completed, but its results could not be posted: ${error.message}`);
   }
+}
+
+function describeViolation(reviewImportance, { blockingFindings, rule }) {
+  const importancePart =
+    rule.minImportance === null
+      ? ''
+      : ` for a review of "${rule.minImportance}" importance or above (this review: "${String(reviewImportance ?? 'unknown').toLowerCase()}")`;
+
+  return `${blockingFindings} pending finding(s) at or above "${rule.minFindingPriority}" priority exceed the allowed maximum of ${rule.maxPendingFindings}${importancePart}`;
 }
 
 // Everything the run posts is rendered by Clover; this function only moves it onto GitHub:
@@ -231,6 +313,8 @@ async function publishReviewContent(clover, github, pullRequest, run, securityRe
     files,
     headSha: pullRequest.headSha ?? '',
     includeReAnalyzeCheckbox: run.recalculation === 'manual',
+    maxInlineComments: run.maxInlineComments ?? undefined,
+    minInlineCommentPriority: run.minInlineCommentPriority || undefined,
     outcome: RUN_OUTCOME_TO_API_OUTCOME[run.outcome],
   });
 
@@ -252,6 +336,8 @@ async function publishReviewContent(clover, github, pullRequest, run, securityRe
   return {
     commentUrl,
     inlineCommentCount: existingFindingIds.size - staleFindingIds.length + inlineComments.length,
+    pendingFindingCounts: content.priorityToPendingFindingCountMap ?? {},
+    reviewImportance: content.reviewImportance,
   };
 }
 
