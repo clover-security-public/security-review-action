@@ -70,15 +70,37 @@ inputs:
       Fail the workflow run (blocking the pull request when this check is
       required) when the review's pending findings at or above
       "blocking-priority" exceed this number. The results are still posted
-      first. Leave empty (the default) to never block.
+      first. Leave empty (the default) to never block. Ignored when
+      "blocking-rules" is set.
     required: false
     default: ''
   blocking-priority:
     description: >-
       Lowest finding priority that counts toward "max-pending-findings":
-      insignificant, low, medium, high (default) or critical.
+      insignificant, low, medium, high (default) or critical. Ignored when
+      "blocking-rules" is set.
     required: false
     default: high
+  blocking-rules:
+    description: >-
+      Blocking policy combining the review's importance with finding
+      thresholds; replaces max-pending-findings/blocking-priority when set.
+      One rule per line, comma-separated clauses: "importance >= <priority>"
+      (gates the rule on the review's importance; omitted = every review),
+      "findings >= <priority>" (lowest finding priority counted; omitted =
+      every priority) and "max <count>" (required). The run fails when any
+      rule is exceeded. Example — "importance >= high, findings >= medium,
+      max 0" plus a second line "findings >= critical, max 0".
+    required: false
+    default: ''
+  min-inline-comment-priority:
+    description: >-
+      Lowest finding priority that gets an inline review comment; findings
+      below it appear only in the summary comment. One of insignificant, low,
+      medium, high or critical. Empty (the default) posts inline comments for
+      every priority.
+    required: false
+    default: ''
   github-token:
     description: Token used to write the sticky PR comment and inline review comments.
     required: false
@@ -100,6 +122,10 @@ outputs:
     description: Total number of the review's pending findings, across all priorities.
   blocking-findings:
     description: Number of pending findings at or above "blocking-priority".
+  review-importance:
+    description: >-
+      The review's importance (the value the Clover public API exposes as the
+      security review's importance), lowercased.
 
 runs:
   using: node24

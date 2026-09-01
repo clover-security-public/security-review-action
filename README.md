@@ -54,8 +54,10 @@ A copy-paste-ready version of this workflow lives in
 | `fail-on-error` | no | `true` | Whether a failed review creation fails the build. |
 | `recalculation` | no | `auto` | `auto` re-analyzes the existing review on every push that changed the design; `manual` only refreshes the summary and offers a "Re-analyze this pull request" checkbox in it (requires the workflow to also run on `issue_comment: [edited]`). |
 | `max-inline-comments` | no | `10` | Maximum number of new inline review comments posted per run (server-clamped to 50; `0` posts the summary only). |
-| `max-pending-findings` | no | — | Fail the run when pending findings at or above `blocking-priority` exceed this number. Empty (the default) never blocks. |
-| `blocking-priority` | no | `high` | Lowest priority that counts toward `max-pending-findings`: `insignificant`, `low`, `medium`, `high` or `critical`. |
+| `max-pending-findings` | no | — | Fail the run when pending findings at or above `blocking-priority` exceed this number. Empty (the default) never blocks. Ignored when `blocking-rules` is set. |
+| `blocking-priority` | no | `high` | Lowest priority that counts toward `max-pending-findings`: `insignificant`, `low`, `medium`, `high` or `critical`. Ignored when `blocking-rules` is set. |
+| `blocking-rules` | no | — | Blocking policy combining the review's importance with finding thresholds, one rule per line (see [Blocking pull requests](#blocking)). Replaces the two inputs above. |
+| `min-inline-comment-priority` | no | all priorities | Lowest finding priority that gets an inline comment; findings below it stay in the summary only. |
 | `github-token` | no | `${{ github.token }}` | Token used to write the PR comments. |
 
 ## Outputs
@@ -68,6 +70,7 @@ A copy-paste-ready version of this workflow lives in
 | `inline-comments` | Number of action items posted as inline review comments on the diff. |
 | `pending-findings` | Total number of the review's pending findings, across all priorities. |
 | `blocking-findings` | Number of pending findings at or above `blocking-priority`. |
+| `review-importance` | The review's importance (the Clover public API's security-review importance), lowercased. |
 
 ## Behavior
 
@@ -76,11 +79,28 @@ A copy-paste-ready version of this workflow lives in
 - **Inline comments** — open requirements and threats (most severe first, up to
   `max-inline-comments` new ones per run, 10 by default) are placed by Clover on the specific
   changed lines they concern and posted as review comments written for those lines; findings without
-  a precise location stay in the summary comment only.
-- **Blocking pull requests** — with `max-pending-findings` set, the run fails after posting the
-  results when the review's pending findings at or above `blocking-priority` exceed the configured
-  number (`status: blocked`). Make the workflow a required status check in branch protection to
-  actually block merging. Timeouts and runs that could not reach Clover never block.
+  a precise location stay in the summary comment only. With `min-inline-comment-priority` set,
+  findings below that priority never get an inline comment (existing comments on them are still
+  resolved when the finding closes).
+- <a name="blocking"></a>**Blocking pull requests** — the run fails after posting the results
+  (`status: blocked`) when the blocking policy is exceeded. Make the workflow a required status
+  check in branch protection to actually block merging. Timeouts and runs that could not reach
+  Clover never block. Two ways to configure the policy:
+  - **Simple**: `max-pending-findings` + `blocking-priority` — block when pending findings at or
+    above the priority exceed the number.
+  - **Rules** (`blocking-rules`, replaces the simple inputs): one rule per line, comma-separated
+    clauses — `importance >= <priority>` gates the rule on the review's own importance (the value
+    the Clover public API exposes as the review's importance; omitted = every review),
+    `findings >= <priority>` sets the lowest finding priority counted (omitted = every priority),
+    and `max <count>` (required) is the highest allowed count. The run fails when **any** rule is
+    exceeded. Example — block high-importance reviews on any medium+ finding, and every review on
+    any critical finding:
+
+    ```yaml
+    blocking-rules: |
+      importance >= high, findings >= medium, max 0
+      findings >= critical, max 0
+    ```
 - **Server-rendered content** — every comment body is rendered by Clover; the action only posts the
   returned markdown, so wording and layout update without a new action release.
 - **Re-pushes** — pushing new commits re-runs the action; the existing review for the PR is reused.

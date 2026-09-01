@@ -45,4 +45,11 @@ jobs:
           # high-or-critical findings:
           # max-pending-findings: '0'
           # blocking-priority: high
+          # ...or combine the review's importance with finding thresholds — block
+          # high-importance reviews on any medium+ finding, and every review on any
+          # critical finding:
+          # blocking-rules: |
+          #   importance >= high, findings >= medium, max 0
+          #   findings >= critical, max 0
           # max-inline-comments: '10'
+          # min-inline-comment-priority: medium

@@ -4,7 +4,7 @@ const { getInput, info, notice, setFailed, setOutput, warning } = require('./act
 const { CloverClient, sleep } = require('./clover');
 const { getPullRequestContext, isReAnalyzeRequested } = require('./context');
 const { GithubClient, STICKY_COMMENT_MARKER } = require('./github');
-const { PRIORITY_ORDER, countBlockingFindings, countPendingFindings } = require('./policy');
+const { PRIORITY_ORDER, countBlockingFindings, countPendingFindings, evaluateBlockingRules, parseBlockingRules } = require('./policy');
 
 const CREATION_POLL_INTERVAL_MS = 5_000;
 const ANALYSIS_POLL_INTERVAL_MS = 15_000;
@@ -151,6 +151,28 @@ async function run() {
     return;
   }
 
+  const minInlineCommentPriority = getInput('min-inline-comment-priority').toLowerCase();
+
+  if (minInlineCommentPriority !== '' && !PRIORITY_ORDER.includes(minInlineCommentPriority)) {
+    setFailed(`Invalid "min-inline-comment-priority" input "${getInput('min-inline-comment-priority')}": expected one of ${PRIORITY_ORDER.join(', ')}, or empty for no minimum.`);
+    return;
+  }
+
+  // "blocking-rules" is the full policy language; when set it replaces the simple
+  // max-pending-findings/blocking-priority pair, which is kept as one importance-blind rule.
+  let blockingRules;
+
+  try {
+    blockingRules = parseBlockingRules(getInput('blocking-rules'));
+  } catch (error) {
+    setFailed(error.message);
+    return;
+  }
+
+  if (blockingRules.length === 0 && maxPendingFindings !== null) {
+    blockingRules = [{ maxPendingFindings, minFindingPriority: blockingPriority, minImportance: null }];
+  }
+
   const github = new GithubClient({
     apiUrl: pullRequest.apiUrl,
     graphqlUrl: pullRequest.graphqlUrl,
@@ -177,7 +199,7 @@ async function run() {
     return;
   }
 
-  const run = { headSha: pullRequest.headSha, maxInlineComments, recalculation, timestamp: Date.now(), trigger: pullRequest.trigger };
+  const run = { headSha: pullRequest.headSha, maxInlineComments, minInlineCommentPriority, recalculation, timestamp: Date.now(), trigger: pullRequest.trigger };
   const failOnError = getInput('fail-on-error') !== 'false';
   const waitTimeoutSeconds = Number.parseInt(getInput('wait-timeout') || '900', 10);
   const deadline = Date.now() + waitTimeoutSeconds * 1000;
@@ -239,7 +261,7 @@ async function run() {
   info('Analysis completed; fetching the rendered review content…');
 
   try {
-    const { commentUrl, inlineCommentCount, pendingFindingCounts } = await publishReviewContent(clover, github, pullRequest, run, securityReviewId);
+    const { commentUrl, inlineCommentCount, pendingFindingCounts, reviewImportance } = await publishReviewContent(clover, github, pullRequest, run, securityReviewId);
 
     setOutput('comment-url', commentUrl);
     setOutput('inline-comments', String(inlineCommentCount));
@@ -249,14 +271,14 @@ async function run() {
 
     setOutput('pending-findings', String(pendingFindings));
     setOutput('blocking-findings', String(blockingFindings));
+    setOutput('review-importance', String(reviewImportance ?? '').toLowerCase());
 
     // The results are always posted first, so developers see what blocked them.
-    if (maxPendingFindings !== null && blockingFindings > maxPendingFindings) {
+    const violations = evaluateBlockingRules(pendingFindingCounts, reviewImportance, blockingRules);
+
+    if (violations.length > 0) {
       setOutput('status', 'blocked');
-      setFailed(
-        `Clover security review blocked this pull request: ${blockingFindings} pending finding(s) at or above `
-          + `"${blockingPriority}" priority exceed the allowed maximum of ${maxPendingFindings}. See ${commentUrl}`,
-      );
+      setFailed(`Clover security review blocked this pull request: ${violations.map((violation) => describeViolation(reviewImportance, violation)).join('; ')}. See ${commentUrl}`);
       return;
     }
 
@@ -266,6 +288,15 @@ async function run() {
     setOutput('status', 'failed');
     (failOnError ? setFailed : warning)(`The review completed, but its results could not be posted: ${error.message}`);
   }
+}
+
+function describeViolation(reviewImportance, { blockingFindings, rule }) {
+  const importancePart =
+    rule.minImportance === null
+      ? ''
+      : ` for a review of "${rule.minImportance}" importance or above (this review: "${String(reviewImportance ?? 'unknown').toLowerCase()}")`;
+
+  return `${blockingFindings} pending finding(s) at or above "${rule.minFindingPriority}" priority exceed the allowed maximum of ${rule.maxPendingFindings}${importancePart}`;
 }
 
 // Everything the run posts is rendered by Clover; this function only moves it onto GitHub:
@@ -283,6 +314,7 @@ async function publishReviewContent(clover, github, pullRequest, run, securityRe
     headSha: pullRequest.headSha ?? '',
     includeReAnalyzeCheckbox: run.recalculation === 'manual',
     maxInlineComments: run.maxInlineComments ?? undefined,
+    minInlineCommentPriority: run.minInlineCommentPriority || undefined,
     outcome: RUN_OUTCOME_TO_API_OUTCOME[run.outcome],
   });
 
@@ -305,6 +337,7 @@ async function publishReviewContent(clover, github, pullRequest, run, securityRe
     commentUrl,
     inlineCommentCount: existingFindingIds.size - staleFindingIds.length + inlineComments.length,
     pendingFindingCounts: content.priorityToPendingFindingCountMap ?? {},
+    reviewImportance: content.reviewImportance,
   };
 }
 
