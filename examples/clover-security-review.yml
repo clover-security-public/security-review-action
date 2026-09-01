@@ -41,3 +41,8 @@ jobs:
           client-id: ${{ secrets.CLOVER_CLIENT_ID }}
           secret-key: ${{ secrets.CLOVER_SECRET_KEY }}
           # recalculation: manual
+          # Fail the run (blocking the PR when this check is required) on pending
+          # high-or-critical findings:
+          # max-pending-findings: '0'
+          # blocking-priority: high
+          # max-inline-comments: '10'

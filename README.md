@@ -53,6 +53,9 @@ A copy-paste-ready version of this workflow lives in
 | `wait-timeout` | no | `900` | Max seconds to wait for the review before giving up (a timeout never fails the build). |
 | `fail-on-error` | no | `true` | Whether a failed review creation fails the build. |
 | `recalculation` | no | `auto` | `auto` re-analyzes the existing review on every push that changed the design; `manual` only refreshes the summary and offers a "Re-analyze this pull request" checkbox in it (requires the workflow to also run on `issue_comment: [edited]`). |
+| `max-inline-comments` | no | `10` | Maximum number of new inline review comments posted per run (server-clamped to 50; `0` posts the summary only). |
+| `max-pending-findings` | no | — | Fail the run when pending findings at or above `blocking-priority` exceed this number. Empty (the default) never blocks. |
+| `blocking-priority` | no | `high` | Lowest priority that counts toward `max-pending-findings`: `insignificant`, `low`, `medium`, `high` or `critical`. |
 | `github-token` | no | `${{ github.token }}` | Token used to write the PR comments. |
 
 ## Outputs
@@ -60,17 +63,24 @@ A copy-paste-ready version of this workflow lives in
 | Output | Description |
 |---|---|
 | `security-review-id` | Id of the created (or pre-existing) Clover security review. |
-| `status` | `completed`, `timeout`, `failed`, `unsupported-repository` or `skipped`. |
+| `status` | `completed`, `blocked`, `timeout`, `failed`, `unsupported-repository` or `skipped`. |
 | `comment-url` | URL of the sticky PR comment, when one was written. |
 | `inline-comments` | Number of action items posted as inline review comments on the diff. |
+| `pending-findings` | Total number of the review's pending findings, across all priorities. |
+| `blocking-findings` | Number of pending findings at or above `blocking-priority`. |
 
 ## Behavior
 
 - **Sticky comment** — the action writes one comment per PR (identified by a hidden marker) and
   updates it in place on subsequent runs.
-- **Inline comments** — open requirements and threats (most severe first, up to 10 new ones per run)
-  are placed by Clover on the specific changed lines they concern and posted as review comments
-  written for those lines; findings without a precise location stay in the summary comment only.
+- **Inline comments** — open requirements and threats (most severe first, up to
+  `max-inline-comments` new ones per run, 10 by default) are placed by Clover on the specific
+  changed lines they concern and posted as review comments written for those lines; findings without
+  a precise location stay in the summary comment only.
+- **Blocking pull requests** — with `max-pending-findings` set, the run fails after posting the
+  results when the review's pending findings at or above `blocking-priority` exceed the configured
+  number (`status: blocked`). Make the workflow a required status check in branch protection to
+  actually block merging. Timeouts and runs that could not reach Clover never block.
 - **Server-rendered content** — every comment body is rendered by Clover; the action only posts the
   returned markdown, so wording and layout update without a new action release.
 - **Re-pushes** — pushing new commits re-runs the action; the existing review for the PR is reused.
