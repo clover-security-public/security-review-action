@@ -68,6 +68,8 @@ threads resolved automatically — bearing in mind it also lets the job push to 
 | `blocking-priority` | no | `high` | Lowest priority that counts toward `max-pending-findings`: `insignificant`, `low`, `medium`, `high` or `critical`. Ignored when `blocking-rules` is set. |
 | `blocking-rules` | no | — | Blocking policy combining the review's importance with finding thresholds, one rule per line (see [Blocking pull requests](#blocking)). Replaces the two inputs above. |
 | `min-inline-comment-priority` | no | all priorities | Lowest finding priority that gets an inline comment; findings below it stay in the summary only. |
+| `paths` | no | all files | Glob patterns (newline- or comma-separated) of the files the review addresses. |
+| `paths-ignore` | no | — | Glob patterns of files the review ignores, applied after `paths` (e.g. `.github/**`, `**/*.sh`). |
 | `github-token` | no | `${{ github.token }}` | Token used to write the PR comments (see [Permissions](#permissions)). |
 
 ## Outputs
@@ -92,6 +94,11 @@ threads resolved automatically — bearing in mind it also lets the job push to 
   a precise location stay in the summary comment only. With `min-inline-comment-priority` set,
   findings below that priority never get an inline comment (existing comments on them are still
   resolved when the finding closes).
+- **Design files only** — with `paths` / `paths-ignore` set, files outside the patterns (CI
+  configuration, scripts, …) are excluded from the analysis, never receive inline comments, and do
+  not count as design changes — a push touching only ignored files leaves the review "already up to
+  date" instead of re-analyzing. The patterns sent by each run replace the ones stored on the
+  review, so workflow edits take effect on the next push.
 - <a name="blocking"></a>**Blocking pull requests** — the run fails after posting the results
   (`status: blocked`) when the blocking policy is exceeded. Make the workflow a required status
   check in branch protection to actually block merging. Timeouts and runs that could not reach

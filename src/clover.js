@@ -34,8 +34,8 @@ class CloverClient {
     this.#secretKey = secretKey;
   }
 
-  createSecurityReview({ applicationId, url }) {
-    const body = { url };
+  createSecurityReview({ applicationId, fileFilter, url }) {
+    const body = { fileFilter, url };
 
     if (applicationId) {
       body.applicationId = applicationId;
@@ -68,8 +68,10 @@ class CloverClient {
 
 
 
-  recalculateSecurityReview(securityReviewId) {
-    return this.#request('POST', `security-review/${securityReviewId}/recalculate/github-action`);
+  // The filter sent with each run replaces the one stored on the review, so workflow edits take
+  // effect on the next push.
+  recalculateSecurityReview(securityReviewId, fileFilter) {
+    return this.#request('POST', `security-review/${securityReviewId}/recalculate/github-action`, { fileFilter });
   }
 
 
