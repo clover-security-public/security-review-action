@@ -40,6 +40,16 @@ jobs:
 A copy-paste-ready version of this workflow lives in
 [`examples/clover-security-review.yml`](examples/clover-security-review.yml).
 
+### <a name="permissions"></a>Permissions
+
+`contents: read` and `pull-requests: write` are all the action needs to post and update the PR
+comments. Resolving review threads is the one exception: GitHub allows the `resolveReviewThread`
+mutation only for tokens with `contents: write` (a GitHub rule, see
+[this discussion](https://github.com/orgs/community/discussions/44650)). With `contents: read`, the
+action instead prepends "✅ No longer open in Clover" to the inline comment of a finding that is no
+longer open and leaves the thread for a human to resolve. Grant `contents: write` to have those
+threads resolved automatically — bearing in mind it also lets the job push to the repository.
+
 ## Inputs
 
 | Input | Required | Default | Description |
@@ -58,7 +68,7 @@ A copy-paste-ready version of this workflow lives in
 | `blocking-priority` | no | `high` | Lowest priority that counts toward `max-pending-findings`: `insignificant`, `low`, `medium`, `high` or `critical`. Ignored when `blocking-rules` is set. |
 | `blocking-rules` | no | — | Blocking policy combining the review's importance with finding thresholds, one rule per line (see [Blocking pull requests](#blocking)). Replaces the two inputs above. |
 | `min-inline-comment-priority` | no | all priorities | Lowest finding priority that gets an inline comment; findings below it stay in the summary only. |
-| `github-token` | no | `${{ github.token }}` | Token used to write the PR comments. |
+| `github-token` | no | `${{ github.token }}` | Token used to write the PR comments (see [Permissions](#permissions)). |
 
 ## Outputs
 
@@ -107,9 +117,10 @@ A copy-paste-ready version of this workflow lives in
   With `recalculation: auto` (default) it is re-analyzed when its design content changed (unchanged
   pushes cost nothing); with `recalculation: manual` nothing is re-analyzed until someone ticks the
   **Re-analyze this pull request** checkbox in the summary comment. Existing inline comments are
-  never edited or moved: a re-run only adds comments for findings that have none yet, and resolves
+  never edited or moved: a re-run only adds comments for findings that have none yet, and closes
   the threads of findings that are no longer open (addressed by the change, or covered/dismissed in
-  Clover).
+  Clover) — resolving them with `contents: write`, otherwise marking the comment as no longer open
+  (see [Permissions](#permissions)).
 - **Every run is visible** — the summary comment always ends with a `Last run` line (time, commit,
   and what happened: new review, re-analysis completed, review already up to date, re-analysis
   skipped in manual mode, or still analyzing), so a run that changed nothing still leaves a trace.

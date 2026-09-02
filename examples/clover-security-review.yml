@@ -14,6 +14,8 @@ on:
   #   types: [edited]
 
 permissions:
+  # Change to "contents: write" to let the action resolve the review threads of findings that are
+  # no longer open (GitHub allows that only with contents: write); with "read" they are marked instead.
   contents: read
   pull-requests: write
 
