@@ -299,9 +299,10 @@ function describeViolation(reviewImportance, { blockingFindings, rule }) {
   return `${blockingFindings} pending finding(s) at or above "${rule.minFindingPriority}" priority exceed the allowed maximum of ${rule.maxPendingFindings}${importancePart}`;
 }
 
-// Everything the run posts is rendered by Clover; this function only moves it onto GitHub:
-// resolve the threads of findings no longer open, post the new inline comments as one review,
-// and upsert the sticky summary comment. Existing inline comments are never edited or moved.
+// Everything the run posts is rendered by Clover; this function only moves it onto GitHub: post the
+// new inline comments as one review, upsert the sticky summary comment, then close the threads of
+// findings no longer open. Existing inline comments are never edited or moved — only marked when
+// their thread cannot be resolved.
 async function publishReviewContent(clover, github, pullRequest, run, securityReviewId) {
   const [existingFindingIds, files] = await Promise.all([
     github.listFindingCommentIds(pullRequest.number),
@@ -320,11 +321,6 @@ async function publishReviewContent(clover, github, pullRequest, run, securityRe
 
   const staleFindingIds = content.staleFindingIds ?? [];
   const inlineComments = content.inlineComments ?? [];
-  const resolved = await github.resolveFindingThreads(pullRequest.number, staleFindingIds.map(String));
-
-  if (resolved > 0) {
-    info(`Resolved ${resolved} inline comment thread(s) for findings that are no longer open.`);
-  }
 
   if (inlineComments.length > 0 && pullRequest.headSha) {
     await github.createFindingComments(pullRequest.number, pullRequest.headSha, inlineComments);
@@ -333,12 +329,42 @@ async function publishReviewContent(clover, github, pullRequest, run, securityRe
 
   const commentUrl = await github.upsertStickyComment(pullRequest.number, content.summaryComment);
 
+  await closeStaleFindingThreads(github, pullRequest, staleFindingIds.map(String), content.staleFindingNote);
+
   return {
     commentUrl,
     inlineCommentCount: existingFindingIds.size - staleFindingIds.length + inlineComments.length,
     pendingFindingCounts: content.priorityToPendingFindingCountMap ?? {},
     reviewImportance: content.reviewImportance,
   };
+}
+
+// Best-effort by design: the results are already posted, and GitHub allows the resolve-thread mutation
+// only with "contents: write" — a permission the workflow template deliberately does not grant.
+async function closeStaleFindingThreads(github, pullRequest, staleFindingIds, staleFindingNote) {
+  if (staleFindingIds.length === 0) {
+    return;
+  }
+
+  try {
+    const { marked, resolutionForbidden, resolved } = await github.closeFindingThreads(pullRequest.number, staleFindingIds, staleFindingNote);
+
+    if (resolved > 0) {
+      info(`Resolved ${resolved} inline comment thread(s) for findings that are no longer open.`);
+    }
+
+    if (resolutionForbidden) {
+      info(
+        (marked > 0
+          ? `Marked ${marked} inline comment(s) as no longer open instead of resolving their threads`
+          : 'Could not resolve the inline comment threads of findings that are no longer open')
+          + ': GitHub allows resolving review threads only with the "contents: write" permission. '
+          + 'Grant it to the workflow to have the threads resolved automatically.',
+      );
+    }
+  } catch (error) {
+    warning(`Could not close the inline comment threads of findings that are no longer open: ${error.message}`);
+  }
 }
 
 async function handleTimeout(github, pullRequest) {

@@ -102,7 +102,11 @@ inputs:
     required: false
     default: ''
   github-token:
-    description: Token used to write the sticky PR comment and inline review comments.
+    description: >-
+      Token used to write the sticky PR comment and inline review comments
+      ("pull-requests: write"), and to resolve the threads of findings that are
+      no longer open — which GitHub allows only with "contents: write"; without
+      it those comments are marked as no longer open instead.
     required: false
     default: ${{ github.token }}
 

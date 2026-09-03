@@ -8,8 +8,38 @@ const FINDING_COMMENT_MARKER_PREFIX = '<!-- clover-finding:';
 
 const FINDING_COMMENT_MARKER_REGEX = /<!-- clover-finding:([^\s>]+) -->/;
 
+// Hidden marker prepended to a stale finding's comment when its thread could not be resolved, so the
+// note is written once. Deliberately not of the "clover-finding:<id>" shape the regex above parses.
+const FINDING_CLOSED_MARKER = '<!-- clover-finding-closed -->';
+
+const RESOLVE_THREAD_MUTATION =
+  'mutation($threadId: ID!) { resolveReviewThread(input: { threadId: $threadId }) { thread { id } } }';
+
+const FINDING_THREADS_QUERY = `query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100, after: $cursor) {
+        pageInfo { endCursor hasNextPage }
+        nodes { id isResolved comments(first: 1) { nodes { body databaseId } } }
+      }
+    }
+  }
+}`;
+
 function findingCommentMarker(findingId) {
   return `${FINDING_COMMENT_MARKER_PREFIX}${findingId} -->`;
+}
+
+function closedFindingCommentBody(body, staleFindingNote) {
+  return `${FINDING_CLOSED_MARKER}\n${staleFindingNote}\n\n${body}`;
+}
+
+class GithubGraphqlError extends Error {
+  constructor(message, { forbidden }) {
+    super(message);
+    this.name = 'GithubGraphqlError';
+    this.forbidden = forbidden;
+  }
 }
 
 class GithubClient {
@@ -114,50 +144,36 @@ class GithubClient {
     });
   }
 
-  // Resolves the review threads of findings that are no longer open. Thread resolution exists only in GraphQL.
-  async resolveFindingThreads(pullRequestNumber, findingIds) {
+  // Closes the open review threads of findings that are no longer open. Resolving a thread exists only
+  // in GraphQL, and GitHub gates that mutation on "contents: write"; when the token lacks it, each
+  // thread's comment is prepended with the note instead — a REST edit "pull-requests: write" allows.
+  // Returns how many threads were resolved, how many comments were marked, and whether resolution
+  // was refused for lack of permission.
+  async closeFindingThreads(pullRequestNumber, findingIds, staleFindingNote) {
+    const result = { marked: 0, resolutionForbidden: false, resolved: 0 };
+
     if (findingIds.length === 0) {
-      return 0;
+      return result;
     }
 
-    const [owner, name] = this.#repository.split('/');
-    const staleFindingIds = new Set(findingIds);
-    let resolved = 0;
-    let cursor = null;
+    const threads = await this.#listOpenFindingThreads(pullRequestNumber, new Set(findingIds));
 
-    do {
-      const data = await this.#graphql(
-        `query($owner: String!, $name: String!, $number: Int!, $cursor: String) {
-          repository(owner: $owner, name: $name) {
-            pullRequest(number: $number) {
-              reviewThreads(first: 100, after: $cursor) {
-                pageInfo { endCursor hasNextPage }
-                nodes { id isResolved comments(first: 1) { nodes { body } } }
-              }
-            }
-          }
-        }`,
-        { cursor, name, number: pullRequestNumber, owner },
-      );
-
-      const threads = data.repository.pullRequest.reviewThreads;
-
-      for (const thread of threads.nodes) {
-        const match = FINDING_COMMENT_MARKER_REGEX.exec(thread.comments.nodes[0]?.body ?? '');
-
-        if (!thread.isResolved && match && staleFindingIds.has(match[1])) {
-          await this.#graphql(
-            'mutation($threadId: ID!) { resolveReviewThread(input: { threadId: $threadId }) { thread { id } } }',
-            { threadId: thread.id },
-          );
-          resolved += 1;
+    for (const thread of threads) {
+      try {
+        await this.#graphql(RESOLVE_THREAD_MUTATION, { threadId: thread.id });
+        result.resolved += 1;
+      } catch (error) {
+        if (!error.forbidden) {
+          throw error;
         }
+
+        result.resolutionForbidden = true;
+        result.marked = await this.#markFindingCommentsClosed(threads.slice(result.resolved), staleFindingNote);
+        return result;
       }
+    }
 
-      cursor = threads.pageInfo.hasNextPage ? threads.pageInfo.endCursor : null;
-    } while (cursor);
-
-    return resolved;
+    return result;
   }
 
   async #graphql(query, variables) {
@@ -174,11 +190,63 @@ class GithubClient {
     const payload = await response.json().catch(() => ({}));
 
     if (!response.ok || payload.errors?.length) {
-      const detail = payload.errors?.map((error) => error.message).join('; ') ?? `HTTP ${response.status}`;
-      throw new Error(`GitHub GraphQL request failed: ${detail}. Ensure the workflow grants "pull-requests: write" permission.`);
+      const errors = payload.errors ?? [];
+      const detail = errors.length > 0 ? errors.map((error) => error.message).join('; ') : `HTTP ${response.status}`;
+      const forbidden =
+        response.status === 403
+        || errors.some((error) => error.type === 'FORBIDDEN' || /not accessible by integration/i.test(error.message ?? ''));
+
+      throw new GithubGraphqlError(`GitHub GraphQL request failed: ${detail}.`, { forbidden });
     }
 
     return payload.data;
+  }
+
+  // Unresolved threads whose first comment carries one of the finding markers, with that comment's
+  // REST id so the thread can be marked when it cannot be resolved.
+  async #listOpenFindingThreads(pullRequestNumber, findingIds) {
+    const [owner, name] = this.#repository.split('/');
+    const threads = [];
+    let cursor = null;
+
+    do {
+      const data = await this.#graphql(FINDING_THREADS_QUERY, { cursor, name, number: pullRequestNumber, owner });
+      const page = data.repository.pullRequest.reviewThreads;
+
+      for (const thread of page.nodes) {
+        const comment = thread.comments.nodes[0];
+        const match = FINDING_COMMENT_MARKER_REGEX.exec(comment?.body ?? '');
+
+        if (!thread.isResolved && match && findingIds.has(match[1])) {
+          threads.push({ commentBody: comment.body, commentId: comment.databaseId, id: thread.id });
+        }
+      }
+
+      cursor = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
+    } while (cursor);
+
+    return threads;
+  }
+
+  async #markFindingCommentsClosed(threads, staleFindingNote) {
+    if (!staleFindingNote) {
+      return 0;
+    }
+
+    let marked = 0;
+
+    for (const thread of threads) {
+      if (thread.commentBody.includes(FINDING_CLOSED_MARKER)) {
+        continue;
+      }
+
+      await this.#send('PATCH', `pulls/comments/${thread.commentId}`, {
+        body: closedFindingCommentBody(thread.commentBody, staleFindingNote),
+      });
+      marked += 1;
+    }
+
+    return marked;
   }
 
   async #listReviewComments(pullRequestNumber) {
@@ -234,9 +302,10 @@ class GithubClient {
 
     if (!response.ok) {
       const responseText = await response.text().catch(() => '');
+      const permissionHint = response.status === 403 ? ' Ensure the workflow grants "pull-requests: write" permission.' : '';
+
       throw new Error(
-        `GitHub API ${method} ${path} failed (HTTP ${response.status})${responseText ? `: ${responseText.slice(0, 300)}` : ''}. `
-          + 'Ensure the workflow grants "pull-requests: write" permission.',
+        `GitHub API ${method} ${path} failed (HTTP ${response.status})${responseText ? `: ${responseText.slice(0, 300)}` : ''}.${permissionHint}`,
       );
     }
 
@@ -245,9 +314,11 @@ class GithubClient {
 }
 
 module.exports = {
+  FINDING_CLOSED_MARKER,
   FINDING_COMMENT_MARKER_PREFIX,
   FINDING_COMMENT_MARKER_REGEX,
   GithubClient,
   STICKY_COMMENT_MARKER,
+  closedFindingCommentBody,
   findingCommentMarker,
 };
