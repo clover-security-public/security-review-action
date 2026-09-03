@@ -4,7 +4,7 @@ const { getInput, info, notice, setFailed, setOutput, warning } = require('./act
 const { CloverClient, sleep } = require('./clover');
 const { getPullRequestContext, isReAnalyzeRequested } = require('./context');
 const { GithubClient, STICKY_COMMENT_MARKER } = require('./github');
-const { PRIORITY_ORDER, countBlockingFindings, countPendingFindings, evaluateBlockingRules, parseBlockingRules } = require('./policy');
+const { PRIORITY_ORDER, countBlockingFindings, countPendingFindings, evaluateBlockingRules, parseBlockingRules, parsePatterns } = require('./policy');
 
 const CREATION_POLL_INTERVAL_MS = 5_000;
 const ANALYSIS_POLL_INTERVAL_MS = 15_000;
@@ -61,7 +61,7 @@ async function resolveSecurityReviewId(clover, createResponse, deadline, run) {
       return { outcome: 'manual-skipped', securityReviewId };
     }
 
-    const queued = await recalculateExistingReview(clover, securityReviewId);
+    const queued = await recalculateExistingReview(clover, run, securityReviewId);
     const outcome = queued ? (run.trigger === 'comment' ? 'reanalyzed-on-request' : 'reanalyzed') : 'up-to-date';
     return { outcome, securityReviewId };
   }
@@ -99,9 +99,9 @@ function parseNonNegativeIntegerInput(name) {
 // Re-pushes reuse the review; ask Clover to re-analyze it when the design changed. A 409 means a
 // previous analysis is still running — the analysis-status polling that follows covers both cases.
 // Returns whether an analysis is (or was already) running.
-async function recalculateExistingReview(clover, securityReviewId) {
+async function recalculateExistingReview(clover, run, securityReviewId) {
   try {
-    const { recalculationQueued } = await clover.recalculateSecurityReview(securityReviewId);
+    const { recalculationQueued } = await clover.recalculateSecurityReview(securityReviewId, run.fileFilter);
     info(recalculationQueued ? 'The design changed since the last analysis; re-analysis queued…' : 'The review is already up to date.');
     return recalculationQueued;
   } catch (error) {
@@ -173,6 +173,11 @@ async function run() {
     blockingRules = [{ maxPendingFindings, minFindingPriority: blockingPriority, minImportance: null }];
   }
 
+  const fileFilter = {
+    paths: parsePatterns(getInput('paths')),
+    pathsIgnore: parsePatterns(getInput('paths-ignore')),
+  };
+
   const github = new GithubClient({
     apiUrl: pullRequest.apiUrl,
     graphqlUrl: pullRequest.graphqlUrl,
@@ -199,7 +204,7 @@ async function run() {
     return;
   }
 
-  const run = { headSha: pullRequest.headSha, maxInlineComments, minInlineCommentPriority, recalculation, timestamp: Date.now(), trigger: pullRequest.trigger };
+  const run = { fileFilter, headSha: pullRequest.headSha, maxInlineComments, minInlineCommentPriority, recalculation, timestamp: Date.now(), trigger: pullRequest.trigger };
   const failOnError = getInput('fail-on-error') !== 'false';
   const waitTimeoutSeconds = Number.parseInt(getInput('wait-timeout') || '900', 10);
   const deadline = Date.now() + waitTimeoutSeconds * 1000;
@@ -215,6 +220,7 @@ async function run() {
 
   const createResponse = await clover.createSecurityReview({
     applicationId: getInput('application-id') || undefined,
+    fileFilter,
     url,
   });
 

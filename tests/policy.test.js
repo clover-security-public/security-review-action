@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 
-const { countBlockingFindings, countPendingFindings, evaluateBlockingRules, parseBlockingRules } = require('../src/policy');
+const { countBlockingFindings, countPendingFindings, evaluateBlockingRules, parseBlockingRules, parsePatterns } = require('../src/policy');
 
 test('blocking findings count everything at or above the blocking priority', () => {
   const counts = { Critical: 1, High: 2, Low: 4, Medium: 3 };
@@ -64,4 +64,10 @@ test('violations carry the counted findings and the exceeded rule', () => {
   assert.equal(violations.length, 1);
   assert.equal(violations[0].blockingFindings, 3);
   assert.equal(violations[0].rule.maxPendingFindings, 1);
+});
+
+test('path patterns split on newlines and commas and drop blanks', () => {
+  assert.deepEqual(parsePatterns('docs/**\n*.md, *.png\n\n  '), ['docs/**', '*.md', '*.png']);
+  assert.deepEqual(parsePatterns(''), []);
+  assert.deepEqual(parsePatterns(undefined), []);
 });

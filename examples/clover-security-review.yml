@@ -36,6 +36,12 @@ jobs:
           secret-key: ${{ secrets.CLOVER_SECRET_KEY }}
           # base-url: https://api-<your-environment>.cloversec.io
           # recalculation: manual
+          # paths: |
+          #   docs/**
+          #   designs/**
+          # paths-ignore: |
+          #   .github/**
+          #   **/*.sh
           # max-inline-comments: '10'
           # min-inline-comment-priority: medium
           # max-pending-findings: '0'

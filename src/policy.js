@@ -67,4 +67,12 @@ function evaluateBlockingRules(priorityToPendingFindingCountMap, reviewImportanc
     .filter(({ blockingFindings, rule }) => blockingFindings > rule.maxPendingFindings);
 }
 
-module.exports = { PRIORITY_ORDER, countBlockingFindings, countPendingFindings, evaluateBlockingRules, parseBlockingRules, priorityRank };
+// Splits a "paths" style input on newlines and commas: "docs/**\n*.md, *.png" → three patterns.
+function parsePatterns(input) {
+  return String(input ?? '')
+    .split(/[\n,]/)
+    .map((pattern) => pattern.trim())
+    .filter((pattern) => pattern.length > 0);
+}
+
+module.exports = { PRIORITY_ORDER, countBlockingFindings, countPendingFindings, evaluateBlockingRules, parseBlockingRules, parsePatterns, priorityRank };

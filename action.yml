@@ -101,6 +101,21 @@ inputs:
       every priority.
     required: false
     default: ''
+  paths:
+    description: >-
+      Glob patterns (newline- or comma-separated) of the files the review
+      addresses, e.g. "docs/**". When empty, every changed file is reviewed.
+      Files outside the patterns are excluded from the analysis, from inline
+      comments, and from the "did the design change?" re-analysis check.
+    required: false
+    default: ''
+  paths-ignore:
+    description: >-
+      Glob patterns (newline- or comma-separated) of files the review ignores,
+      applied after "paths" — e.g. ".github/**" and "**/*.sh" to keep CI
+      configuration and scripts out of the review.
+    required: false
+    default: ''
   github-token:
     description: >-
       Token used to write the sticky PR comment and inline review comments
