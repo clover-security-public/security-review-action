@@ -106,7 +106,8 @@ inputs:
       Glob patterns (newline- or comma-separated) of the files the review
       addresses, e.g. "docs/**". When empty, every changed file is reviewed.
       Files outside the patterns are excluded from the analysis, from inline
-      comments, and from the "did the design change?" re-analysis check.
+      comments, and from the "did the design change?" re-analysis check. A
+      pull request changing no file within the patterns gets no review.
     required: false
     default: ''
   paths-ignore:
@@ -132,7 +133,8 @@ outputs:
     description: >-
       Outcome of the run: completed, blocked (pending findings exceeded
       "max-pending-findings"), timeout, failed, unsupported-repository or
-      skipped (a comment edit that was not a re-analyze request).
+      skipped (a comment edit that was not a re-analyze request, or a pull
+      request none of whose changed files match "paths" / "paths-ignore").
   comment-url:
     description: URL of the sticky PR comment, when one was written.
   inline-comments:

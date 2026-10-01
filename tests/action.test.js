@@ -123,3 +123,31 @@ test('a non-permission GraphQL failure still surfaces', async () => {
     await assert.rejects(() => github.closeFindingThreads(7, [FINDING_ID], NOTE), /Something went wrong/);
   });
 });
+
+const { resolveSecurityReviewId } = require('../src/main');
+
+const CREATE_RESPONSE = { jobId: 'job-1' };
+const RUN = { recalculation: 'auto', trigger: 'push' };
+
+function cloverReturningCreation(creation) {
+  return { getCreationStatus: async () => creation };
+}
+
+test('a skipped creation resolves to no review id', async () => {
+  const result = await resolveSecurityReviewId(cloverReturningCreation({ status: 'Skipped' }), CREATE_RESPONSE, Date.now() + 60_000, RUN);
+
+  assert.deepEqual(result, { outcome: 'skipped', securityReviewId: null });
+});
+
+test('a completed creation resolves to its review id', async () => {
+  const result = await resolveSecurityReviewId(cloverReturningCreation({ securityReviewId: 'review-1', status: 'Completed' }), CREATE_RESPONSE, Date.now() + 60_000, RUN);
+
+  assert.deepEqual(result, { outcome: 'created', securityReviewId: 'review-1' });
+});
+
+test('a finished creation without a review id fails instead of polling an undefined review', async () => {
+  await assert.rejects(
+    () => resolveSecurityReviewId(cloverReturningCreation({ status: 'Unexpected' }), CREATE_RESPONSE, Date.now() + 60_000, RUN),
+    /ended as Unexpected without a security review id/,
+  );
+});

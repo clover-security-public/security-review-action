@@ -50,7 +50,7 @@ async function pollUntil(fetchState, isDone, intervalMs, deadline) {
 }
 
 // Returns the review id and how this run got there: 'created', 'reanalyzed', 'reanalyzed-on-request',
-// 'up-to-date' or 'manual-skipped'.
+// 'up-to-date', 'manual-skipped', or 'skipped' (no review was created, so the id is null).
 async function resolveSecurityReviewId(clover, createResponse, deadline, run) {
   if (createResponse.existingSecurityReviewId) {
     const securityReviewId = createResponse.existingSecurityReviewId;
@@ -75,10 +75,19 @@ async function resolveSecurityReviewId(clover, createResponse, deadline, run) {
     deadline,
   );
 
+  if (creation.status === 'Skipped') {
+    info('None of the changed files match the "paths" / "paths-ignore" patterns; no review was created.');
+    return { outcome: 'skipped', securityReviewId: null };
+  }
+
   if (creation.status === 'Failed') {
     const failure = new Error(creation.failureReason ?? 'Unknown failure');
     failure.failureReason = creation.failureReason;
     throw failure;
+  }
+
+  if (!creation.securityReviewId) {
+    throw new Error(`Review creation ended as ${creation.status} without a security review id`);
   }
 
   return { outcome: 'created', securityReviewId: creation.securityReviewId };
@@ -245,6 +254,11 @@ async function run() {
     return;
   }
 
+  if (run.outcome === 'skipped') {
+    setOutput('status', 'skipped');
+    return;
+  }
+
   setOutput('security-review-id', securityReviewId);
   info(`Security review ${securityReviewId}; waiting for analysis to complete…`);
 
@@ -387,4 +401,8 @@ async function handleTimeout(github, pullRequest) {
   }
 }
 
-run().catch((error) => setFailed(error.message));
+if (require.main === module) {
+  run().catch((error) => setFailed(error.message));
+}
+
+module.exports = { resolveSecurityReviewId };
