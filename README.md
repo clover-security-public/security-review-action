@@ -77,7 +77,7 @@ threads resolved automatically — bearing in mind it also lets the job push to 
 | Output | Description |
 |---|---|
 | `security-review-id` | Id of the created (or pre-existing) Clover security review. |
-| `status` | `completed`, `blocked`, `timeout`, `failed`, `unsupported-repository` or `skipped`. |
+| `status` | `completed`, `blocked`, `timeout`, `failed`, `unsupported-repository` or `skipped` (a comment edit that was not a re-analyze request, or no changed file within `paths` / `paths-ignore`). |
 | `comment-url` | URL of the sticky PR comment, when one was written. |
 | `inline-comments` | Number of action items posted as inline review comments on the diff. |
 | `pending-findings` | Total number of the review's pending findings, across all priorities. |
@@ -97,7 +97,8 @@ threads resolved automatically — bearing in mind it also lets the job push to 
 - **Design files only** — with `paths` / `paths-ignore` set, files outside the patterns (CI
   configuration, scripts, …) are excluded from the analysis, never receive inline comments, and do
   not count as design changes — a push touching only ignored files leaves the review "already up to
-  date" instead of re-analyzing. The patterns sent by each run replace the ones stored on the
+  date" instead of re-analyzing. A pull request that changes no file within the patterns gets no
+  review at all (`status: skipped`). The patterns sent by each run replace the ones stored on the
   review, so workflow edits take effect on the next push.
 - <a name="blocking"></a>**Blocking pull requests** — the run fails after posting the results
   (`status: blocked`) when the blocking policy is exceeded. Make the workflow a required status
