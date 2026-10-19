@@ -167,6 +167,13 @@ async function run() {
     return;
   }
 
+  const minReportedFindingPriority = getInput('min-reported-finding-priority').toLowerCase();
+
+  if (minReportedFindingPriority !== '' && !PRIORITY_ORDER.includes(minReportedFindingPriority)) {
+    setFailed(`Invalid "min-reported-finding-priority" input "${getInput('min-reported-finding-priority')}": expected one of ${PRIORITY_ORDER.join(', ')}, or empty to follow min-inline-comment-priority.`);
+    return;
+  }
+
   // "blocking-rules" is the full policy language; when set it replaces the simple
   // max-pending-findings/blocking-priority pair, which is kept as one importance-blind rule.
   let blockingRules;
@@ -213,7 +220,7 @@ async function run() {
     return;
   }
 
-  const run = { fileFilter, headSha: pullRequest.headSha, maxInlineComments, minInlineCommentPriority, recalculation, timestamp: Date.now(), trigger: pullRequest.trigger };
+  const run = { fileFilter, headSha: pullRequest.headSha, maxInlineComments, minInlineCommentPriority, minReportedFindingPriority, recalculation, timestamp: Date.now(), trigger: pullRequest.trigger };
   const failOnError = getInput('fail-on-error') !== 'false';
   const waitTimeoutSeconds = Number.parseInt(getInput('wait-timeout') || '900', 10);
   const deadline = Date.now() + waitTimeoutSeconds * 1000;
@@ -336,6 +343,7 @@ async function publishReviewContent(clover, github, pullRequest, run, securityRe
     includeReAnalyzeCheckbox: run.recalculation === 'manual',
     maxInlineComments: run.maxInlineComments ?? undefined,
     minInlineCommentPriority: run.minInlineCommentPriority || undefined,
+    minReportedFindingPriority: run.minReportedFindingPriority || undefined,
     outcome: RUN_OUTCOME_TO_API_OUTCOME[run.outcome],
   });
 

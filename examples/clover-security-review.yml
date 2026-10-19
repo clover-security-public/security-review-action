@@ -43,7 +43,8 @@ jobs:
           #   .github/**
           #   **/*.sh
           # max-inline-comments: '10'
-          # min-inline-comment-priority: medium
+          # min-reported-finding-priority: medium
+          # min-inline-comment-priority: high
           # max-pending-findings: '0'
           # blocking-priority: high
           # blocking-rules: |
