@@ -67,7 +67,8 @@ threads resolved automatically — bearing in mind it also lets the job push to 
 | `max-pending-findings` | no | — | Fail the run when pending findings at or above `blocking-priority` exceed this number. Empty (the default) never blocks. Ignored when `blocking-rules` is set. |
 | `blocking-priority` | no | `high` | Lowest priority that counts toward `max-pending-findings`: `insignificant`, `low`, `medium`, `high` or `critical`. Ignored when `blocking-rules` is set. |
 | `blocking-rules` | no | — | Blocking policy combining the review's importance with finding thresholds, one rule per line (see [Blocking pull requests](#blocking)). Replaces the two inputs above. |
-| `min-inline-comment-priority` | no | all priorities | Lowest finding priority that gets an inline comment; findings below it stay in the summary only. |
+| `min-inline-comment-priority` | no | all priorities | Lowest finding priority that gets an inline comment; never below `min-reported-finding-priority`. |
+| `min-reported-finding-priority` | no | `min-inline-comment-priority` | Lowest finding priority listed in the summary comment. When empty, the summary follows `min-inline-comment-priority` (see [Choosing which findings are shown](#priority-thresholds)). Blocking counts are not affected. |
 | `paths` | no | all files | Glob patterns (newline- or comma-separated) of the files the review addresses. |
 | `paths-ignore` | no | — | Glob patterns of files the review ignores, applied after `paths` (e.g. `.github/**`, `**/*.sh`). |
 | `github-token` | no | `${{ github.token }}` | Token used to write the PR comments (see [Permissions](#permissions)). |
@@ -94,6 +95,23 @@ threads resolved automatically — bearing in mind it also lets the job push to 
   a precise location stay in the summary comment only. With `min-inline-comment-priority` set,
   findings below that priority never get an inline comment (existing comments on them are still
   resolved when the finding closes).
+- <a name="priority-thresholds"></a>**Choosing which findings are shown** — the summary lists
+  findings at or above `min-reported-finding-priority`; when that input is empty it uses
+  `min-inline-comment-priority`, so one threshold keeps the summary and the inline comments
+  aligned. Inline comments never go below the summary's threshold. The blocking policy always
+  counts every pending finding, whatever the thresholds. For example:
+
+  ```yaml
+  # Summary and inline comments both show medium and above.
+  min-inline-comment-priority: medium
+
+  # Summary lists medium and above; only high and critical get inline comments.
+  min-reported-finding-priority: medium
+  min-inline-comment-priority: high
+
+  # Summary lists high and above; inline comments follow it.
+  min-reported-finding-priority: high
+  ```
 - **Design files only** — with `paths` / `paths-ignore` set, files outside the patterns (CI
   configuration, scripts, …) are excluded from the analysis, never receive inline comments, and do
   not count as design changes — a push touching only ignored files leaves the review "already up to

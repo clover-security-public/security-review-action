@@ -95,10 +95,19 @@ inputs:
     default: ''
   min-inline-comment-priority:
     description: >-
-      Lowest finding priority that gets an inline review comment; findings
-      below it appear only in the summary comment. One of insignificant, low,
-      medium, high or critical. Empty (the default) posts inline comments for
-      every priority.
+      Lowest finding priority that gets an inline review comment; never below
+      min-reported-finding-priority. One of insignificant, low, medium, high or
+      critical. Empty (the default) posts inline comments for every priority
+      the summary lists.
+    required: false
+    default: ''
+  min-reported-finding-priority:
+    description: >-
+      Lowest finding priority listed in the summary comment (and therefore
+      eligible for an inline comment). One of insignificant, low, medium, high
+      or critical. Empty (the default) uses min-inline-comment-priority, and
+      lists every priority when that is empty too. Blocking counts are not
+      affected.
     required: false
     default: ''
   paths:
