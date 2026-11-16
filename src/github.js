@@ -106,20 +106,14 @@ class GithubClient {
       .map((file) => ({ patch: file.patch, path: file.filename }));
   }
 
-  // Finding ids that already have an inline comment on the PR, keyed from the hidden marker.
-  async listFindingCommentIds(pullRequestNumber) {
+  // Clover's inline comments on the PR: the first comment of each thread that carries a finding marker, with
+  // its REST id. Clover reads the markers in the body and answers which of them to resolve.
+  async listFindingComments(pullRequestNumber) {
     const comments = await this.#listReviewComments(pullRequestNumber);
-    const findingIds = new Set();
 
-    for (const comment of comments) {
-      const match = FINDING_COMMENT_MARKER_REGEX.exec(comment.body ?? '');
-
-      if (match) {
-        findingIds.add(match[1]);
-      }
-    }
-
-    return findingIds;
+    return comments
+      .filter((comment) => !comment.in_reply_to_id && FINDING_COMMENT_MARKER_REGEX.test(comment.body ?? ''))
+      .map((comment) => ({ body: comment.body, commentId: String(comment.id) }));
   }
 
   // Posts all new inline comments as a single review so they appear together.
@@ -144,19 +138,36 @@ class GithubClient {
     });
   }
 
-  // Closes the open review threads of findings that are no longer open. Resolving a thread exists only
-  // in GraphQL, and GitHub gates that mutation on "contents: write"; when the token lacks it, each
-  // thread's comment is prepended with the note instead — a REST edit "pull-requests: write" allows.
-  // Returns how many threads were resolved, how many comments were marked, and whether resolution
-  // was refused for lack of permission.
-  async closeFindingThreads(pullRequestNumber, findingIds, staleFindingNote) {
-    const result = { marked: 0, resolutionForbidden: false, resolved: 0 };
+  // Closes the open review threads whose first comment Clover named as stale, by its REST id.
+  async closeCommentThreads(pullRequestNumber, commentIds, staleFindingNote) {
+    const staleCommentIds = new Set(commentIds.map(String));
 
-    if (findingIds.length === 0) {
+    return this.#closeThreads(pullRequestNumber, (comment) => staleCommentIds.has(String(comment.databaseId)), staleFindingNote);
+  }
+
+  // Closes the open review threads of findings that are no longer open — the answer of a Clover that does not
+  // yet return comment ids.
+  async closeFindingThreads(pullRequestNumber, findingIds, staleFindingNote) {
+    const staleFindingIds = new Set(findingIds);
+
+    return this.#closeThreads(
+      pullRequestNumber,
+      (comment) => staleFindingIds.has(FINDING_COMMENT_MARKER_REGEX.exec(comment.body ?? '')?.[1]),
+      staleFindingNote,
+    );
+  }
+
+  // Resolving a thread exists only in GraphQL, and GitHub gates that mutation on "contents: write"; when the
+  // token lacks it, each thread's comment is prepended with the note instead — a REST edit "pull-requests: write"
+  // allows. Returns how many threads were resolved, how many comments were marked, and whether resolution was
+  // refused for lack of permission.
+  async #closeThreads(pullRequestNumber, isStaleComment, staleFindingNote) {
+    const result = { marked: 0, resolutionForbidden: false, resolved: 0 };
+    const threads = await this.#listOpenFindingThreads(pullRequestNumber, isStaleComment);
+
+    if (threads.length === 0) {
       return result;
     }
-
-    const threads = await this.#listOpenFindingThreads(pullRequestNumber, new Set(findingIds));
 
     for (const thread of threads) {
       try {
@@ -202,9 +213,9 @@ class GithubClient {
     return payload.data;
   }
 
-  // Unresolved threads whose first comment carries one of the finding markers, with that comment's
-  // REST id so the thread can be marked when it cannot be resolved.
-  async #listOpenFindingThreads(pullRequestNumber, findingIds) {
+  // Unresolved Clover threads whose first comment is stale, with that comment's REST id so the thread can be
+  // marked when it cannot be resolved.
+  async #listOpenFindingThreads(pullRequestNumber, isStaleComment) {
     const [owner, name] = this.#repository.split('/');
     const threads = [];
     let cursor = null;
@@ -215,9 +226,8 @@ class GithubClient {
 
       for (const thread of page.nodes) {
         const comment = thread.comments.nodes[0];
-        const match = FINDING_COMMENT_MARKER_REGEX.exec(comment?.body ?? '');
 
-        if (!thread.isResolved && match && findingIds.has(match[1])) {
+        if (!thread.isResolved && comment && FINDING_COMMENT_MARKER_REGEX.test(comment.body ?? '') && isStaleComment(comment)) {
           threads.push({ commentBody: comment.body, commentId: comment.databaseId, id: thread.id });
         }
       }

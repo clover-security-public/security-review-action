@@ -3,7 +3,7 @@
 const { getInput, info, notice, setFailed, setOutput, warning } = require('./actions');
 const { CloverClient, sleep } = require('./clover');
 const { getPullRequestContext, isReAnalyzeRequested } = require('./context');
-const { GithubClient, STICKY_COMMENT_MARKER } = require('./github');
+const { FINDING_COMMENT_MARKER_REGEX, GithubClient, STICKY_COMMENT_MARKER } = require('./github');
 const { PRIORITY_ORDER, countBlockingFindings, countPendingFindings, evaluateBlockingRules, parseBlockingRules, parsePatterns } = require('./policy');
 
 const CREATION_POLL_INTERVAL_MS = 5_000;
@@ -331,12 +331,14 @@ function describeViolation(reviewImportance, { blockingFindings, rule }) {
 // findings no longer open. Existing inline comments are never edited or moved — only marked when
 // their thread cannot be resolved.
 async function publishReviewContent(clover, github, pullRequest, run, securityReviewId) {
-  const [existingFindingIds, files] = await Promise.all([
-    github.listFindingCommentIds(pullRequest.number),
+  const [existingFindingComments, files] = await Promise.all([
+    github.listFindingComments(pullRequest.number),
     github.getPullRequestFiles(pullRequest.number),
   ]);
+  const existingFindingIds = new Set(existingFindingComments.map((comment) => FINDING_COMMENT_MARKER_REGEX.exec(comment.body)[1]));
 
   const content = await clover.getReviewContent(securityReviewId, {
+    existingFindingComments,
     existingFindingIds: [...existingFindingIds],
     files,
     headSha: pullRequest.headSha ?? '',
@@ -347,7 +349,9 @@ async function publishReviewContent(clover, github, pullRequest, run, securityRe
     outcome: RUN_OUTCOME_TO_API_OUTCOME[run.outcome],
   });
 
-  const staleFindingIds = content.staleFindingIds ?? [];
+  // Clover answers per comment once it knows the comments; an older Clover answers per finding.
+  const staleCommentIds = Array.isArray(content.staleCommentIds) ? content.staleCommentIds.map(String) : null;
+  const staleFindingIds = (content.staleFindingIds ?? []).map(String);
   const inlineComments = content.inlineComments ?? [];
 
   if (inlineComments.length > 0 && pullRequest.headSha) {
@@ -357,11 +361,20 @@ async function publishReviewContent(clover, github, pullRequest, run, securityRe
 
   const commentUrl = await github.upsertStickyComment(pullRequest.number, content.summaryComment);
 
-  await closeStaleFindingThreads(github, pullRequest, staleFindingIds.map(String), content.staleFindingNote);
+  await closeStaleFindingThreads(
+    staleCommentIds ?? staleFindingIds,
+    (staleFindingNote) =>
+      staleCommentIds
+        ? github.closeCommentThreads(pullRequest.number, staleCommentIds, staleFindingNote)
+        : github.closeFindingThreads(pullRequest.number, staleFindingIds, staleFindingNote),
+    content.staleFindingNote,
+  );
 
   return {
     commentUrl,
-    inlineCommentCount: existingFindingIds.size - staleFindingIds.length + inlineComments.length,
+    inlineCommentCount: staleCommentIds
+      ? existingFindingComments.length - staleCommentIds.length + inlineComments.length
+      : existingFindingIds.size - staleFindingIds.length + inlineComments.length,
     pendingFindingCounts: content.priorityToPendingFindingCountMap ?? {},
     reviewImportance: content.reviewImportance,
   };
@@ -369,13 +382,13 @@ async function publishReviewContent(clover, github, pullRequest, run, securityRe
 
 // Best-effort by design: the results are already posted, and GitHub allows the resolve-thread mutation
 // only with "contents: write" — a permission the workflow template deliberately does not grant.
-async function closeStaleFindingThreads(github, pullRequest, staleFindingIds, staleFindingNote) {
-  if (staleFindingIds.length === 0) {
+async function closeStaleFindingThreads(staleIds, closeThreads, staleFindingNote) {
+  if (staleIds.length === 0) {
     return;
   }
 
   try {
-    const { marked, resolutionForbidden, resolved } = await github.closeFindingThreads(pullRequest.number, staleFindingIds, staleFindingNote);
+    const { marked, resolutionForbidden, resolved } = await closeThreads(staleFindingNote);
 
     if (resolved > 0) {
       info(`Resolved ${resolved} inline comment thread(s) for findings that are no longer open.`);

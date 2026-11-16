@@ -46,8 +46,9 @@ A copy-paste-ready version of this workflow lives in
 comments. Resolving review threads is the one exception: GitHub allows the `resolveReviewThread`
 mutation only for tokens with `contents: write` (a GitHub rule, see
 [this discussion](https://github.com/orgs/community/discussions/44650)). With `contents: read`, the
-action instead prepends "✅ No longer open in Clover" to the inline comment of a finding that is no
-longer open and leaves the thread for a human to resolve. Grant `contents: write` to have those
+action instead prepends "✅ No longer open in Clover" to an inline comment that is settled — its
+finding is no longer open or, for a threat comment, none of the requirements it asks for is — and
+leaves the thread for a human to resolve. Grant `contents: write` to have those
 threads resolved automatically — bearing in mind it also lets the job push to the repository.
 
 ## Inputs

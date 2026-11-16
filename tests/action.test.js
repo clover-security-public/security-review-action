@@ -118,6 +118,42 @@ test('without a note from Clover nothing is marked and nothing fails', async () 
   });
 });
 
+test('threads are closed by the comment ids Clover names, leaving its other comments open', async () => {
+  await withGithub(ORIGINAL_BODY, { data: { resolveReviewThread: { thread: { id: 'THREAD_OPEN' } } } }, async (github, calls) => {
+    const resolvedNamed = await github.closeCommentThreads(7, ['42'], NOTE);
+    const resolveCalls = calls.filter((call) => call.url.endsWith('/graphql') && call.body.query.startsWith('mutation'));
+
+    assert.deepEqual(resolvedNamed, { marked: 0, resolutionForbidden: false, resolved: 1 });
+    assert.equal(resolveCalls.length, 1);
+    assert.equal(resolveCalls[0].body.variables.threadId, 'THREAD_OPEN');
+  });
+
+  await withGithub(ORIGINAL_BODY, { data: { resolveReviewThread: { thread: { id: 'THREAD_OPEN' } } } }, async (github) => {
+    const resolvedOther = await github.closeCommentThreads(7, ['999'], NOTE);
+
+    assert.deepEqual(resolvedOther, { marked: 0, resolutionForbidden: false, resolved: 0 });
+  });
+});
+
+test('existing finding comments are the thread-opening comments that carry a finding marker', async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async () =>
+    jsonResponse([
+      { body: ORIGINAL_BODY, id: 42 },
+      { body: `${findingCommentMarker(FINDING_ID)} quoted in a reply`, id: 43, in_reply_to_id: 42 },
+      { body: 'A human review comment.', id: 44 },
+    ]);
+
+  try {
+    const github = new GithubClient({ apiUrl: 'https://api.github.com', graphqlUrl: 'https://api.github.com/graphql', repository: 'acme/design', token: 'token' });
+
+    assert.deepEqual(await github.listFindingComments(7), [{ body: ORIGINAL_BODY, commentId: '42' }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('a non-permission GraphQL failure still surfaces', async () => {
   await withGithub(ORIGINAL_BODY, { errors: [{ message: 'Something went wrong', type: 'INTERNAL' }] }, async (github) => {
     await assert.rejects(() => github.closeFindingThreads(7, [FINDING_ID], NOTE), /Something went wrong/);
