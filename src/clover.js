@@ -64,6 +64,11 @@ class CloverClient {
     });
   }
 
+  // Ties each inline comment just posted to the GitHub comment it became, so Clover resolves it by its own terms.
+  recordPostedComments(securityReviewId, postedComments) {
+    return this.#request('POST', `security-review/${securityReviewId}/github-pull-request-review-comments`, { postedComments });
+  }
+
   getCreationStatus(jobId) {
     return this.#request('GET', `security-review/creation-status/${jobId}`);
   }

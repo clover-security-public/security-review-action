@@ -81,7 +81,7 @@ threads resolved automatically — bearing in mind it also lets the job push to 
 | `security-review-id` | Id of the created (or pre-existing) Clover security review. |
 | `status` | `completed`, `blocked`, `timeout`, `failed`, `unsupported-repository` or `skipped` (a comment edit that was not a re-analyze request, or no changed file within `paths` / `paths-ignore`). |
 | `comment-url` | URL of the sticky PR comment, when one was written. |
-| `inline-comments` | Number of action items posted as inline review comments on the diff. |
+| `inline-comments` | Number of inline review comments this run posted on the diff. |
 | `pending-findings` | Total number of the review's pending findings, across all priorities. |
 | `blocking-findings` | Number of pending findings at or above `blocking-priority`. |
 | `review-importance` | The review's importance (the Clover public API's security-review importance), lowercased. |
@@ -93,7 +93,8 @@ threads resolved automatically — bearing in mind it also lets the job push to 
 - **Inline comments** — open requirements and threats (most severe first, up to
   `max-inline-comments` new ones per run, 10 by default) are placed by Clover on the specific
   changed lines they concern and posted as review comments written for those lines; findings without
-  a precise location stay in the summary comment only. With `min-inline-comment-priority` set,
+  a precise location stay in the summary comment only. After posting, the action tells Clover which
+  GitHub comment each one became, so Clover can later resolve it on its own terms. With `min-inline-comment-priority` set,
   findings below that priority never get an inline comment (existing comments on them are still
   resolved when the finding closes).
 - <a name="priority-thresholds"></a>**Choosing which findings are shown** — the summary lists

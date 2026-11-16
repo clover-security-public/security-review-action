@@ -3,7 +3,8 @@
 // Hidden marker identifying the action's sticky comment, so re-runs update it in place.
 const STICKY_COMMENT_MARKER = '<!-- clover-security-review -->';
 
-// Hidden per-finding marker on inline review comments, so re-runs update rather than duplicate them.
+// Hidden per-finding marker on the inline review comments of a Clover that does not record them, so re-runs
+// update rather than duplicate them. Clover now records each comment it asks the action to post instead.
 const FINDING_COMMENT_MARKER_PREFIX = '<!-- clover-finding:';
 
 const FINDING_COMMENT_MARKER_REGEX = /<!-- clover-finding:([^\s>]+) -->/;
@@ -28,6 +29,37 @@ const FINDING_THREADS_QUERY = `query($owner: String!, $name: String!, $number: I
 
 function findingCommentMarker(findingId) {
   return `${FINDING_COMMENT_MARKER_PREFIX}${findingId} -->`;
+}
+
+// GitHub keeps a posted body as sent, apart from line endings and trailing whitespace.
+function normalizeCommentBody(body) {
+  return String(body ?? '').replace(/\r\n/g, '\n').trimEnd();
+}
+
+function postedCommentKey(path, line, body) {
+  return `${path}\u0000${line}\u0000${normalizeCommentBody(body)}`;
+}
+
+// Ties each comment Clover gave an inlineCommentId to one GitHub comment of the posted review.
+function matchPostedComments(findingComments, postedComments) {
+  const keyToCommentIds = new Map();
+
+  for (const postedComment of postedComments ?? []) {
+    const key = postedCommentKey(postedComment.path, postedComment.line ?? postedComment.original_line, postedComment.body);
+    keyToCommentIds.set(key, [...(keyToCommentIds.get(key) ?? []), String(postedComment.id)]);
+  }
+
+  const matched = [];
+
+  for (const findingComment of findingComments) {
+    const commentIds = keyToCommentIds.get(postedCommentKey(findingComment.path, findingComment.endLine, findingComment.body));
+
+    if (findingComment.inlineCommentId && commentIds?.length) {
+      matched.push({ commentId: commentIds.shift(), inlineCommentId: findingComment.inlineCommentId });
+    }
+  }
+
+  return matched;
 }
 
 function closedFindingCommentBody(body, staleFindingNote) {
@@ -106,23 +138,28 @@ class GithubClient {
       .map((file) => ({ patch: file.patch, path: file.filename }));
   }
 
-  // Clover's inline comments on the PR: the first comment of each thread that carries a finding marker, with
-  // its REST id. Clover reads the markers in the body and answers which of them to resolve.
-  async listFindingComments(pullRequestNumber) {
+  // The first comment of every review thread on the PR, by REST id. Clover recognises its own comments by the id
+  // it recorded; the body goes along only for a comment that still carries the old finding marker.
+  async listThreadComments(pullRequestNumber) {
     const comments = await this.#listReviewComments(pullRequestNumber);
 
     return comments
-      .filter((comment) => !comment.in_reply_to_id && FINDING_COMMENT_MARKER_REGEX.test(comment.body ?? ''))
-      .map((comment) => ({ body: comment.body, commentId: String(comment.id) }));
+      .filter((comment) => !comment.in_reply_to_id)
+      .map((comment) =>
+        FINDING_COMMENT_MARKER_REGEX.test(comment.body ?? '')
+          ? { body: comment.body, commentId: String(comment.id) }
+          : { commentId: String(comment.id) });
   }
 
-  // Posts all new inline comments as a single review so they appear together.
+  // Posts all new inline comments as a single review so they appear together, then reads the review's comments
+  // back to tell which GitHub comment each one became: same file, same line and same body. Returns
+  // [{ commentId, inlineCommentId }] for the comments Clover gave an inlineCommentId.
   async createFindingComments(pullRequestNumber, headSha, findingComments) {
     if (findingComments.length === 0) {
-      return;
+      return [];
     }
 
-    await this.#send('POST', `pulls/${pullRequestNumber}/reviews`, {
+    const review = await this.#send('POST', `pulls/${pullRequestNumber}/reviews`, {
       body: '',
       comments: findingComments.map((findingComment) => ({
         body: findingComment.body,
@@ -136,6 +173,14 @@ class GithubClient {
       commit_id: headSha,
       event: 'COMMENT',
     });
+
+    if (!findingComments.some((findingComment) => findingComment.inlineCommentId) || !review?.id) {
+      return [];
+    }
+
+    const postedComments = await this.#send('GET', `pulls/${pullRequestNumber}/reviews/${review.id}/comments?per_page=100`);
+
+    return matchPostedComments(findingComments, postedComments);
   }
 
   // Closes the open review threads whose first comment Clover named as stale, by its REST id.
@@ -146,7 +191,7 @@ class GithubClient {
   }
 
   // Closes the open review threads of findings that are no longer open — the answer of a Clover that does not
-  // yet return comment ids.
+  // yet return comment ids, found by the finding marker of their first comment.
   async closeFindingThreads(pullRequestNumber, findingIds, staleFindingNote) {
     const staleFindingIds = new Set(findingIds);
 
@@ -213,8 +258,8 @@ class GithubClient {
     return payload.data;
   }
 
-  // Unresolved Clover threads whose first comment is stale, with that comment's REST id so the thread can be
-  // marked when it cannot be resolved.
+  // Unresolved threads whose first comment is stale, with that comment's REST id so the thread can be marked when
+  // it cannot be resolved.
   async #listOpenFindingThreads(pullRequestNumber, isStaleComment) {
     const [owner, name] = this.#repository.split('/');
     const threads = [];
@@ -227,7 +272,7 @@ class GithubClient {
       for (const thread of page.nodes) {
         const comment = thread.comments.nodes[0];
 
-        if (!thread.isResolved && comment && FINDING_COMMENT_MARKER_REGEX.test(comment.body ?? '') && isStaleComment(comment)) {
+        if (!thread.isResolved && comment && isStaleComment(comment)) {
           threads.push({ commentBody: comment.body, commentId: comment.databaseId, id: thread.id });
         }
       }
@@ -331,4 +376,5 @@ module.exports = {
   STICKY_COMMENT_MARKER,
   closedFindingCommentBody,
   findingCommentMarker,
+  matchPostedComments,
 };

@@ -331,14 +331,18 @@ function describeViolation(reviewImportance, { blockingFindings, rule }) {
 // findings no longer open. Existing inline comments are never edited or moved — only marked when
 // their thread cannot be resolved.
 async function publishReviewContent(clover, github, pullRequest, run, securityReviewId) {
-  const [existingFindingComments, files] = await Promise.all([
-    github.listFindingComments(pullRequest.number),
+  const [threadComments, files] = await Promise.all([
+    github.listThreadComments(pullRequest.number),
     github.getPullRequestFiles(pullRequest.number),
   ]);
-  const existingFindingIds = new Set(existingFindingComments.map((comment) => FINDING_COMMENT_MARKER_REGEX.exec(comment.body)[1]));
+  const existingFindingIds = new Set(
+    threadComments
+      .map((comment) => FINDING_COMMENT_MARKER_REGEX.exec(comment.body ?? '')?.[1])
+      .filter(Boolean),
+  );
 
   const content = await clover.getReviewContent(securityReviewId, {
-    existingFindingComments,
+    existingFindingComments: threadComments,
     existingFindingIds: [...existingFindingIds],
     files,
     headSha: pullRequest.headSha ?? '',
@@ -349,14 +353,15 @@ async function publishReviewContent(clover, github, pullRequest, run, securityRe
     outcome: RUN_OUTCOME_TO_API_OUTCOME[run.outcome],
   });
 
-  // Clover answers per comment once it knows the comments; an older Clover answers per finding.
+  // Clover answers per comment once it records them; an older Clover answers per finding.
   const staleCommentIds = Array.isArray(content.staleCommentIds) ? content.staleCommentIds.map(String) : null;
   const staleFindingIds = (content.staleFindingIds ?? []).map(String);
   const inlineComments = content.inlineComments ?? [];
 
   if (inlineComments.length > 0 && pullRequest.headSha) {
-    await github.createFindingComments(pullRequest.number, pullRequest.headSha, inlineComments);
+    const postedComments = await github.createFindingComments(pullRequest.number, pullRequest.headSha, inlineComments);
     info(`Posted ${inlineComments.length} inline comment(s).`);
+    await reportPostedComments(clover, securityReviewId, postedComments, inlineComments);
   }
 
   const commentUrl = await github.upsertStickyComment(pullRequest.number, content.summaryComment);
@@ -372,12 +377,27 @@ async function publishReviewContent(clover, github, pullRequest, run, securityRe
 
   return {
     commentUrl,
-    inlineCommentCount: staleCommentIds
-      ? existingFindingComments.length - staleCommentIds.length + inlineComments.length
-      : existingFindingIds.size - staleFindingIds.length + inlineComments.length,
+    inlineCommentCount: inlineComments.length,
     pendingFindingCounts: content.priorityToPendingFindingCountMap ?? {},
     reviewImportance: content.reviewImportance,
   };
+}
+
+// Best-effort: an unreported comment is never posted twice, Clover just cannot resolve its thread later.
+async function reportPostedComments(clover, securityReviewId, postedComments, inlineComments) {
+  if (postedComments.length === 0) {
+    return;
+  }
+
+  if (postedComments.length < inlineComments.filter((inlineComment) => inlineComment.inlineCommentId).length) {
+    warning(`Matched ${postedComments.length} of the ${inlineComments.length} posted inline comments to their GitHub comments; the rest cannot be resolved automatically.`);
+  }
+
+  try {
+    await clover.recordPostedComments(securityReviewId, postedComments);
+  } catch (error) {
+    warning(`Could not report the posted inline comments to Clover, so their threads will not be resolved automatically: ${error.message}`);
+  }
 }
 
 // Best-effort by design: the results are already posted, and GitHub allows the resolve-thread mutation

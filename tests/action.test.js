@@ -135,7 +135,7 @@ test('threads are closed by the comment ids Clover names, leaving its other comm
   });
 });
 
-test('existing finding comments are the thread-opening comments that carry a finding marker', async () => {
+test('thread comments are the thread-opening comments, with the body only when it carries a finding marker', async () => {
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = async () =>
@@ -148,7 +148,63 @@ test('existing finding comments are the thread-opening comments that carry a fin
   try {
     const github = new GithubClient({ apiUrl: 'https://api.github.com', graphqlUrl: 'https://api.github.com/graphql', repository: 'acme/design', token: 'token' });
 
-    assert.deepEqual(await github.listFindingComments(7), [{ body: ORIGINAL_BODY, commentId: '42' }]);
+    assert.deepEqual(await github.listThreadComments(7), [{ body: ORIGINAL_BODY, commentId: '42' }, { commentId: '44' }]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('a comment without a finding marker is closed by the comment id Clover names', async () => {
+  await withGithub('**🍀🛡️ Clover Security Review**\n\nNo marker here.', { data: { resolveReviewThread: { thread: { id: 'THREAD_OPEN' } } } }, async (github) => {
+    assert.deepEqual(await github.closeCommentThreads(7, ['42'], NOTE), { marked: 0, resolutionForbidden: false, resolved: 1 });
+  });
+});
+
+test('posted comments are matched to the GitHub comments of the review by file, line and body', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ method: options.method ?? 'GET', url: String(url) });
+
+    return String(url).endsWith('/reviews')
+      ? jsonResponse({ id: 900 })
+      : jsonResponse([
+        { body: 'Second.\r\n', id: 2, line: 12, path: 'design.md' },
+        { body: 'First.', id: 1, line: 10, path: 'design.md' },
+      ]);
+  };
+
+  try {
+    const github = new GithubClient({ apiUrl: 'https://api.github.com', graphqlUrl: 'https://api.github.com/graphql', repository: 'acme/design', token: 'token' });
+    const posted = await github.createFindingComments(7, 'sha', [
+      { body: 'First.', endLine: 10, inlineCommentId: 'a', path: 'design.md', startLine: 10 },
+      { body: 'Second.', endLine: 12, inlineCommentId: 'b', path: 'design.md', startLine: 11 },
+      { body: 'Not posted.', endLine: 20, inlineCommentId: 'c', path: 'design.md', startLine: 20 },
+    ]);
+
+    assert.deepEqual(posted, [{ commentId: '1', inlineCommentId: 'a' }, { commentId: '2', inlineCommentId: 'b' }]);
+    assert.ok(calls.some((call) => call.url.endsWith('/pulls/7/reviews/900/comments?per_page=100')));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('comments from a Clover that records nothing are posted without reading them back', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ method: options.method ?? 'GET', url: String(url) });
+
+    return jsonResponse({ id: 900 });
+  };
+
+  try {
+    const github = new GithubClient({ apiUrl: 'https://api.github.com', graphqlUrl: 'https://api.github.com/graphql', repository: 'acme/design', token: 'token' });
+
+    assert.deepEqual(await github.createFindingComments(7, 'sha', [{ body: ORIGINAL_BODY, endLine: 10, path: 'design.md', startLine: 10 }]), []);
+    assert.equal(calls.length, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }
